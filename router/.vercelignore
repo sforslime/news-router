@@ -1,0 +1,18 @@
+# Vercel falls back to .gitignore when this file is absent, which would drop
+# router.db — the whole dataset the deployment serves. So the upload list is
+# spelled out here instead.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+tests/
+.playwright-mcp/
+
+# The WAL sidecars are checkpointed into router.db before deploying; shipping
+# a stale one alongside would shadow the real contents.
+router.db-wal
+router.db-shm
+
+# Local only, never leaves the machine.
+app/sources.local.yaml

@@ -1,0 +1,3 @@
+# Screenshots from browser-driven checks.
+.playwright-mcp/
+.DS_Store

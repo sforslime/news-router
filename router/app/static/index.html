@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charSet="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>The Nigerian News Router</title>
+<meta name="description" content="One read-only JSON interface across Nigerian newsrooms. Search every indexed outlet at once and see how a story was covered."/>
+<meta name="robots" content="noindex, nofollow"/>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2314110f'/%3E%3Cpath d='M7 24V8h3.4l7.2 10.2V8H21v16h-3.4L10.4 13.8V24z' fill='%23e8e6e1'/%3E%3C/svg%3E"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=Newsreader:opsz,wght@6..72,400;6..72,500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --paper:#e8e6e1; --paper-deep:#ded9d2; --ink:#14110f; --rule:#c3bdb4;
+  --meta:#625c55; --accent:#1f5f4a; --stamp:#14110f;
+  --display:"Archivo",system-ui,sans-serif;
+  --body:"Newsreader",Georgia,serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html{background:var(--paper)}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:var(--body); font-size:17px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  background-image:linear-gradient(180deg,rgba(20,17,15,.035) 0 1px,transparent 1px 100%);
+  background-size:100% 2.6rem;
+}
+a{color:var(--ink)}
+.wrap{max-width:62rem;margin:0 auto;padding:0 1.5rem 6rem}
+
+.masthead{border-bottom:2px solid var(--ink);padding:1.1rem 0 .7rem;display:flex;
+  align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.masthead__mark{font-family:var(--display);font-weight:800;letter-spacing:-.02em;font-size:1.02rem}
+.masthead__meta{font-family:var(--mono);font-size:.74rem;color:var(--meta);text-transform:uppercase;letter-spacing:.08em}
+
+.hero{padding:4.5rem 0 1rem}
+.eyebrow{font-family:var(--mono);font-size:.74rem;text-transform:uppercase;letter-spacing:.12em;
+  color:var(--accent);margin:0 0 1.4rem}
+h1{font-family:var(--display);font-weight:800;font-size:clamp(2.6rem,7vw,4.6rem);line-height:.96;
+  letter-spacing:-.035em;margin:0 0 1.6rem;max-width:15ch}
+.lede{max-width:54ch;margin:0 0 2.4rem;color:var(--meta);font-size:1.12rem}
+.num{font-family:var(--display);font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
+
+.searchbar{display:flex;border:2px solid var(--ink);background:var(--paper-deep)}
+.searchbar input{flex:1;border:0;background:transparent;padding:.95rem 1rem;font-family:var(--body);
+  font-size:1.06rem;color:var(--ink);outline:none;min-width:0}
+.searchbar button{border:0;border-left:2px solid var(--ink);background:var(--ink);color:var(--paper);
+  font-family:var(--display);font-weight:600;font-size:.86rem;letter-spacing:.04em;
+  text-transform:uppercase;padding:0 1.4rem;cursor:pointer}
+.searchbar button:hover{background:var(--accent)}
+
+.chips{display:flex;align-items:baseline;flex-wrap:wrap;gap:.4rem .5rem;margin:.9rem 0 2.4rem}
+.chips__label{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;color:var(--meta)}
+.chip{font-family:var(--mono);font-size:.78rem;border:1px solid var(--rule);background:transparent;
+  padding:.2rem .55rem;cursor:pointer;color:var(--meta)}
+.chip:hover{border-color:var(--ink);color:var(--ink)}
+
+.tally{font-size:1.06rem;color:var(--meta);margin:0 0 1.2rem;min-height:1.6rem}
+.tally strong{font-family:var(--display);font-weight:800;color:var(--ink)}
+
+.results{border-top:1px solid var(--rule);margin:0 0 3.5rem}
+.result{border-bottom:1px solid var(--rule);padding:1.1rem 0;display:grid;
+  grid-template-columns:11rem 1fr;gap:1.2rem}
+.result__src{font-family:var(--mono);font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--accent);padding-top:.28rem}
+.result__time{display:block;color:var(--meta);letter-spacing:.02em;text-transform:none;margin-top:.2rem}
+.result__head{font-family:var(--display);font-weight:600;font-size:1.06rem;line-height:1.3;
+  letter-spacing:-.012em;margin:0 0 .3rem;text-decoration:none;display:block}
+.result__head:hover{color:var(--accent)}
+.result__dek{color:var(--meta);font-size:.97rem;margin:0}
+.result__tag{font-family:var(--mono);font-size:.7rem;color:var(--paper);background:var(--accent);
+  padding:.1rem .4rem;margin-left:.4rem;letter-spacing:.05em;vertical-align:.12em}
+
+.shared{border:2px solid var(--accent);background:var(--paper-deep);padding:1rem 1.2rem;margin:0 0 1.5rem}
+.shared__note{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;
+  color:var(--accent);margin:0 0 .5rem}
+
+h2.section{font-family:var(--display);font-weight:800;font-size:1.9rem;letter-spacing:-.025em;
+  margin:0 0 .4rem;padding-top:1rem}
+.section__sub{color:var(--meta);max-width:52ch;margin:0 0 2rem}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:0;
+  border-top:1px solid var(--rule);border-left:1px solid var(--rule)}
+.card{border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:1.5rem 1.4rem}
+.card h3{font-family:var(--display);font-weight:600;font-size:1.06rem;letter-spacing:-.01em;margin:0 0 .5rem}
+.card p{margin:0;color:var(--meta);font-size:.97rem}
+
+details.dev{margin-top:3.5rem;border-top:2px solid var(--ink);padding-top:1.2rem}
+details.dev summary{font-family:var(--display);font-weight:600;font-size:1.02rem;cursor:pointer;
+  list-style:none;display:flex;align-items:baseline;gap:.6rem}
+details.dev summary::-webkit-details-marker{display:none}
+details.dev summary::before{content:"+";font-family:var(--mono);color:var(--accent);font-weight:500}
+details.dev[open] summary::before{content:"–"}
+.dev__intro{color:var(--meta);max-width:56ch;margin:1rem 0 2rem;font-size:.99rem}
+
+.ep{border-top:1px solid var(--rule);padding:1.3rem 0}
+.ep__sig{font-family:var(--mono);font-size:.9rem;margin:0 0 .4rem;display:flex;gap:.6rem;align-items:baseline;flex-wrap:wrap}
+.ep__verb{color:var(--paper);background:var(--stamp);padding:.05rem .4rem;font-size:.72rem;letter-spacing:.06em}
+.ep__desc{color:var(--meta);font-size:.97rem;margin:0 0 .8rem;max-width:56ch}
+.ep__params{width:100%;border-collapse:collapse;margin:0 0 .9rem;font-size:.86rem}
+.ep__params td{border-top:1px solid var(--rule);padding:.35rem .6rem .35rem 0;vertical-align:top}
+.ep__params td:first-child{font-family:var(--mono);width:11rem;color:var(--ink)}
+.ep__params td:last-child{color:var(--meta)}
+.runner{display:flex;gap:.7rem;align-items:center;flex-wrap:wrap}
+.runner code{font-family:var(--mono);font-size:.82rem;background:var(--paper-deep);
+  border:1px solid var(--rule);padding:.3rem .5rem;overflow-x:auto;max-width:100%}
+.runner button{font-family:var(--display);font-weight:600;font-size:.78rem;letter-spacing:.04em;
+  text-transform:uppercase;background:transparent;border:1px solid var(--ink);padding:.35rem .8rem;cursor:pointer;color:var(--ink)}
+.runner button:hover{background:var(--ink);color:var(--paper)}
+.out{margin:.8rem 0 0;background:var(--ink);color:#d8d4cd;font-family:var(--mono);font-size:.78rem;
+  line-height:1.5;padding:.9rem 1rem;overflow-x:auto;max-height:24rem;white-space:pre}
+.out__meta{font-family:var(--mono);font-size:.72rem;color:var(--meta);margin:.5rem 0 0;letter-spacing:.04em}
+
+.sources{border-top:1px solid var(--rule);margin:0 0 3.5rem}
+.srow{border-bottom:1px solid var(--rule);padding:.75rem 0;display:flex;gap:1rem;align-items:baseline;
+  justify-content:space-between;flex-wrap:wrap}
+.srow__name{font-family:var(--display);font-weight:600;font-size:1rem}
+.srow__meta{font-family:var(--mono);font-size:.75rem;color:var(--meta);letter-spacing:.04em}
+.dot{display:inline-block;width:.5rem;height:.5rem;border-radius:50%;margin-right:.45rem;vertical-align:.02em}
+.dot--on{background:var(--accent)} .dot--off{background:var(--rule)}
+
+.foot{border-top:2px solid var(--ink);margin-top:4rem;padding-top:1rem;
+  font-family:var(--mono);font-size:.74rem;color:var(--meta);display:flex;
+  justify-content:space-between;gap:1rem;flex-wrap:wrap;letter-spacing:.03em}
+@media(max-width:640px){
+  .result{grid-template-columns:1fr;gap:.35rem}
+  .result__src{padding-top:0}
+  .result__time{display:inline;margin-left:.5rem}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <span class="masthead__mark">Nigerian News Router</span>
+    <span class="masthead__meta" id="mastMeta">Prototype / v0.1</span>
+  </header>
+
+  <section class="hero">
+    <p class="eyebrow">A proposal — prototype, working now</p>
+    <h1>The same story, from every newsroom at once.</h1>
+    <p class="lede">
+      When something happens in Nigeria, a dozen newsrooms report it and nobody
+      can see them together. This indexes <span class="num" id="artCount">—</span>
+      reports from <span class="num" id="srcCount">—</span> newsrooms under one
+      set of field names, and it is running below. Search it.
+    </p>
+
+    <form class="searchbar" id="searchForm">
+      <input id="q" type="search" placeholder="Search every indexed newsroom…" autocomplete="off" aria-label="Search"/>
+      <button type="submit">Search</button>
+    </form>
+
+    <div class="chips">
+      <span class="chips__label">Try</span>
+      <button class="chip" type="button">fake agency</button>
+      <button class="chip" type="button">Tinubu</button>
+      <button class="chip" type="button">Adeleke</button>
+      <button class="chip" type="button">ADC</button>
+      <button class="chip" type="button">Kwara</button>
+    </div>
+
+    <p class="tally" id="tally"></p>
+    <div id="shared"></div>
+    <div class="results" id="results"></div>
+  </section>
+
+  <h2 class="section">Who is in the index</h2>
+  <p class="section__sub">
+    The newsrooms the router knows about. A filled dot means it is being indexed
+    today; the rest are known to the router but not read from.
+  </p>
+  <div class="sources" id="sources"></div>
+
+  <h2 class="section">Why it is worth doing</h2>
+  <p class="section__sub">
+    Six things this makes possible that no single newsroom's own feed can.
+  </p>
+  <div class="cards">
+    <div class="card">
+      <h3>One story, every version of it</h3>
+      <p>The same event is reported by Punch, Vanguard and Premium Times within
+         minutes of each other, and today there is no way to line those up. This
+         returns them together, each linked back to the newsroom that filed it.</p>
+    </div>
+    <div class="card">
+      <h3>One address, many newsrooms</h3>
+      <p>Anyone building on Nigerian reporting integrates each outlet separately
+         and repairs it after every redesign. Field names and date formats are
+         fixed here, so adding a newsroom changes nothing for the caller.</p>
+    </div>
+    <div class="card">
+      <h3>Permission is enforced per report</h3>
+      <p>A single answer mixes newsrooms on different agreements, so what each one
+         permits is applied to its own reports as they are served. Anything outside
+         a newsroom's grant comes back empty and says so.</p>
+    </div>
+    <div class="card">
+      <h3>Corrections travel</h3>
+      <p>Changes are caught by comparing the report itself, so a quiet edit is
+         noticed even when the CMS timestamp never moves. Every version is kept,
+         with the fields that changed named.</p>
+    </div>
+    <div class="card">
+      <h3>Only the front of the story leaves</h3>
+      <p>Headline, standfirst, byline, time, section, a short extract and the
+         thumbnail. The body of a report is read while indexing and then discarded.
+         It is never stored and never served, at any tier.</p>
+    </div>
+    <div class="card">
+      <h3>There is nothing new to run</h3>
+      <p>For most newsrooms this reads the feed the site already publishes. No
+         second copy of the archive, no software to install, and it cannot change
+         or remove a single report.</p>
+    </div>
+  </div>
+
+  <details class="dev">
+    <summary>Show the developer view</summary>
+    <p class="dev__intro">
+      Read-only endpoints, every one of them runnable here against the live index,
+      with the response shown exactly as a client receives it. Anonymous callers
+      get 30 requests a minute; issued keys get their own limit.
+    </p>
+
+    <div class="ep">
+      <p class="ep__sig"><span class="ep__verb">GET</span> /v1/search</p>
+      <p class="ep__desc">Full text across every indexed newsroom at once — headline, standfirst, extract and the tags the newsroom applied.</p>
+      <table class="ep__params">
+        <tr><td>q</td><td>required, your search terms</td></tr>
+        <tr><td>source</td><td>narrow to one or more newsrooms, comma separated</td></tr>
+        <tr><td>limit</td><td>1–100, default 25</td></tr>
+      </table>
+      <div class="runner"><code>/v1/search?q=fake%20agency</code><button type="button" data-run="/v1/search?q=fake%20agency">Run it →</button></div>
+    </div>
+
+    <div class="ep">
+      <p class="ep__sig"><span class="ep__verb">GET</span> /v1/articles</p>
+      <p class="ep__desc">Every indexed report, newest first, across all newsrooms. Advertorial is excluded unless asked for.</p>
+      <table class="ep__params">
+        <tr><td>source</td><td>newsroom ids, comma separated</td></tr>
+        <tr><td>section</td><td>desk or beat</td></tr>
+        <tr><td>language</td><td>en, ha, yo, pcm</td></tr>
+        <tr><td>wire_source</td><td>e.g. NAN — or <em>none</em> for a newsroom's own reporting</td></tr>
+        <tr><td>since / until</td><td>ISO timestamp, UTC</td></tr>
+        <tr><td>include_sponsored</td><td>default false</td></tr>
+        <tr><td>limit / cursor</td><td>1–100, default 25; cursor from the previous page</td></tr>
+      </table>
+      <div class="runner"><code>/v1/articles?limit=3</code><button type="button" data-run="/v1/articles?limit=3">Run it →</button></div>
+    </div>
+
+    <div class="ep">
+      <p class="ep__sig"><span class="ep__verb">GET</span> /v1/articles/{id}/revisions</p>
+      <p class="ep__desc">Every version of one report that the router has seen, and which fields moved between them. This is how a correction reaches a partner.</p>
+      <table class="ep__params">
+        <tr><td>id</td><td>required, e.g. premium-times:904543</td></tr>
+      </table>
+      <div class="runner"><code id="revPath">/v1/articles/…/revisions</code><button type="button" id="revRun">Run it →</button></div>
+    </div>
+
+    <div class="ep">
+      <p class="ep__sig"><span class="ep__verb">GET</span> /v1/sources</p>
+      <p class="ep__desc">Every newsroom the router knows about, how it is read, and exactly what it has permitted.</p>
+      <div class="runner"><code>/v1/sources</code><button type="button" data-run="/v1/sources">Run it →</button></div>
+    </div>
+
+    <div class="ep">
+      <p class="ep__sig"><span class="ep__verb">GET</span> /v1/clusters</p>
+      <p class="ep__desc">The same story grouped across newsrooms. The schema and endpoint are in place; the matching that fills them is not built yet, so this returns empty.</p>
+      <div class="runner"><code>/v1/clusters</code><button type="button" data-run="/v1/clusters">Run it →</button></div>
+    </div>
+
+    <div class="ep">
+      <p class="ep__sig"><span class="ep__verb">GET</span> /v1/health</p>
+      <p class="ep__desc">Index size and whether any newsroom is failing to read.</p>
+      <div class="runner"><code>/v1/health</code><button type="button" data-run="/v1/health">Run it →</button></div>
+    </div>
+  </details>
+
+  <footer class="foot">
+    <span>Prototype built for review — not an official service of any newsroom</span>
+    <span id="footMeta">Metadata only · article bodies are never stored</span>
+  </footer>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+// Cut on a word boundary — a hard slice leaves deks ending mid-word.
+function clip(text, limit){
+  const t = String(text ?? "").trim();
+  if (t.length <= limit) return t;
+  return t.slice(0, limit).replace(/\s+\S*$/, "").replace(/[,;:.\u2014-]+$/, "") + "\u2026";
+}
+
+function when(iso){
+  if(!iso) return "";
+  const d = new Date(iso), now = new Date();
+  const mins = Math.round((now - d) / 60000);
+  if (mins < 60) return mins + " min ago";
+  if (mins < 60*24) return Math.round(mins/60) + " hr ago";
+  return d.toLocaleDateString("en-GB", {day:"numeric", month:"short"});
+}
+
+async function boot(){
+  try{
+    const [h, s] = await Promise.all([
+      fetch("/v1/health").then(r => r.json()),
+      fetch("/v1/sources").then(r => r.json()),
+    ]);
+    $("#artCount").textContent = h.counts.articles.toLocaleString();
+    $("#srcCount").textContent = h.counts.sources_enabled.toLocaleString();
+    $("#mastMeta").textContent = "Prototype / v0.1 · " + h.counts.sources_enabled + " newsrooms";
+
+    $("#sources").innerHTML = s.sources
+      .sort((a,b) => (b.enabled - a.enabled) || a.name.localeCompare(b.name))
+      .map(src => `
+        <div class="srow">
+          <span class="srow__name">
+            <span class="dot ${src.enabled ? "dot--on" : "dot--off"}"></span>${esc(src.name)}
+          </span>
+          <span class="srow__meta">
+            ${src.enabled ? "indexed" : "not indexed"}
+          </span>
+        </div>`).join("");
+  }catch(e){ /* the page still works without the counts */ }
+}
+
+async function search(q){
+  if(!q) return;
+  $("#tally").innerHTML = "searching…";
+  $("#shared").innerHTML = "";
+  const r = await fetch("/v1/search?limit=25&q=" + encodeURIComponent(q));
+  const d = await r.json();
+  const outlets = new Set(d.articles.map(a => a.source.name));
+
+  $("#tally").innerHTML = `<strong>${d.count}</strong> report${d.count===1?"":"s"} `
+    + `mention “${esc(q)}”, across <strong>${outlets.size}</strong> newsroom${outlets.size===1?"":"s"}`;
+
+  if (outlets.size > 1){
+    $("#shared").innerHTML = `<div class="shared">
+      <p class="shared__note">Covered by more than one newsroom</p>
+      <p style="margin:0;color:var(--meta);font-size:.97rem">
+        ${[...outlets].map(esc).join(" · ")} — each linked back to the newsroom that filed it.
+      </p></div>`;
+  }
+
+  $("#results").innerHTML = d.articles.length ? d.articles.map(a => `
+    <div class="result">
+      <div class="result__src">
+        ${esc(a.source.name)}
+        <span class="result__time">${when(a.published_at)}</span>
+      </div>
+      <div>
+        <a class="result__head" href="${esc(a.canonical_url)}" target="_blank" rel="noopener">
+          ${esc(a.headline)}${a.wire_source ? `<span class="result__tag">${esc(a.wire_source)}</span>` : ""}
+        </a>
+        <p class="result__dek">${esc(clip(a.dek || a.snippet, 190))}</p>
+      </div>
+    </div>`).join("")
+    : `<div class="result"><div class="result__src">—</div><div><p class="result__dek">Nothing in the index matches that yet. The index currently holds only the most recent reports from each newsroom.</p></div></div>`;
+}
+
+$("#searchForm").addEventListener("submit", e => { e.preventDefault(); search($("#q").value.trim()); });
+document.querySelectorAll(".chip").forEach(c =>
+  c.addEventListener("click", () => { $("#q").value = c.textContent; search(c.textContent); }));
+
+document.querySelectorAll("[data-run]").forEach(b =>
+  b.addEventListener("click", () => runIt(b, b.dataset.run)));
+
+async function runIt(btn, path){
+  const ep = btn.closest(".ep");
+  ep.querySelectorAll(".out, .out__meta").forEach(n => n.remove());
+  const t0 = performance.now();
+  const r = await fetch(path);
+  const ms = Math.round(performance.now() - t0);
+  const body = await r.json();
+  const pre = document.createElement("pre");
+  pre.className = "out";
+  pre.textContent = JSON.stringify(body, null, 2).slice(0, 6000);
+  const meta = document.createElement("p");
+  meta.className = "out__meta";
+  meta.textContent = `${r.status} · ${ms} ms · ${(JSON.stringify(body).length/1024).toFixed(1)} kB`;
+  ep.append(pre, meta);
+}
+
+// Point the revisions runner at a report that actually has more than one version.
+(async () => {
+  try{
+    const d = await fetch("/v1/articles?limit=100").then(r => r.json());
+    const a = d.articles.find(x => x.revision > 1) || d.articles[0];
+    if(!a) return;
+    const path = `/v1/articles/${a.id}/revisions`;
+    $("#revPath").textContent = path;
+    $("#revRun").addEventListener("click", () => runIt($("#revRun"), path));
+  }catch(e){}
+})();
+
+boot();
+search("fake agency");
+</script>
+</body>
+</html>

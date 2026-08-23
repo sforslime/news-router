@@ -1,0 +1,102 @@
+-- News Router storage schema.
+-- Written to stay portable to Postgres: no SQLite-only types outside the FTS block.
+
+CREATE TABLE IF NOT EXISTS sources (
+  id                TEXT PRIMARY KEY,          -- slug, e.g. 'premium-times'
+  name              TEXT NOT NULL,
+  homepage          TEXT NOT NULL,
+  tier              INTEGER NOT NULL,          -- 1 installed API, 2 wp-json, 3 gated, 4 rss
+  adapter           TEXT NOT NULL,             -- wordpress | content_api | rss
+  endpoint          TEXT NOT NULL,
+  enabled           INTEGER NOT NULL DEFAULT 0,
+  -- Licensing. Nothing is served to clients that the rights columns do not allow.
+  license_status    TEXT NOT NULL DEFAULT 'none',   -- signed | verbal | pending | none
+  rights_dek        INTEGER NOT NULL DEFAULT 0,
+  rights_snippet    INTEGER NOT NULL DEFAULT 0,
+  rights_image      INTEGER NOT NULL DEFAULT 0,
+  attribution_name  TEXT,
+  timezone          TEXT NOT NULL DEFAULT 'Africa/Lagos',
+  added_at          TEXT NOT NULL,
+  last_ingest_at    TEXT,
+  last_error        TEXT
+);
+
+CREATE TABLE IF NOT EXISTS articles (
+  id                    TEXT PRIMARY KEY,      -- '{source_id}:{source_article_id}'
+  source_id             TEXT NOT NULL REFERENCES sources(id),
+  source_article_id     TEXT NOT NULL,
+  headline              TEXT NOT NULL,
+  dek                   TEXT,
+  byline                TEXT,
+  -- published_at is normalised UTC. published_at_reported keeps whatever the site
+  -- claimed, because Nigerian WordPress backdates and mixes WAT/UTC constantly.
+  published_at          TEXT NOT NULL,
+  published_at_reported TEXT,
+  updated_at            TEXT,
+  first_seen_at         TEXT NOT NULL,         -- when the router saw it; always trustworthy
+  canonical_url         TEXT NOT NULL,
+  section               TEXT,
+  snippet               TEXT,
+  image                 TEXT,
+  language              TEXT NOT NULL DEFAULT 'en',
+  wire_source           TEXT,                  -- NAN | Reuters | AFP | NULL (own reporting)
+  paywalled             INTEGER NOT NULL DEFAULT 0,
+  sponsored             INTEGER NOT NULL DEFAULT 0,  -- advertorial / syndicated PR
+  content_hash          TEXT NOT NULL,         -- detects silent edits updated_at misses
+  entities              TEXT NOT NULL DEFAULT '[]',  -- JSON array, from publisher tags
+  revision              INTEGER NOT NULL DEFAULT 1,
+  retracted             INTEGER NOT NULL DEFAULT 0,
+  retraction_note       TEXT,
+  cluster_id            TEXT,
+  UNIQUE (source_id, source_article_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_articles_published  ON articles(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_articles_source     ON articles(source_id, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_articles_cluster    ON articles(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_articles_hash       ON articles(content_hash);
+CREATE INDEX IF NOT EXISTS idx_articles_firstseen  ON articles(first_seen_at DESC);
+
+-- Every observed change to a story. This is what makes corrections and
+-- retractions propagate, and what exposes stealth edits.
+CREATE TABLE IF NOT EXISTS article_revisions (
+  article_id    TEXT NOT NULL REFERENCES articles(id),
+  revision      INTEGER NOT NULL,
+  content_hash  TEXT NOT NULL,
+  headline      TEXT NOT NULL,
+  dek           TEXT,
+  snippet       TEXT,
+  seen_at       TEXT NOT NULL,
+  changed       TEXT NOT NULL DEFAULT '[]',    -- JSON array of field names
+  PRIMARY KEY (article_id, revision)
+);
+
+CREATE TABLE IF NOT EXISTS clusters (
+  id                 TEXT PRIMARY KEY,
+  label              TEXT,
+  lead_article_id    TEXT,
+  size               INTEGER NOT NULL DEFAULT 1,
+  first_published_at TEXT,
+  last_published_at  TEXT,
+  created_at         TEXT NOT NULL,
+  updated_at         TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+  key_hash      TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  plan          TEXT NOT NULL DEFAULT 'free',
+  rate_per_min  INTEGER NOT NULL DEFAULT 60,
+  enabled       INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL
+);
+
+-- SQLite full-text search. On Postgres this becomes a tsvector column + GIN index.
+CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
+  article_id UNINDEXED,
+  headline,
+  dek,
+  snippet,
+  entities,
+  tokenize = 'unicode61 remove_diacritics 2'
+);

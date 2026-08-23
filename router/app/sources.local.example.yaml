@@ -1,0 +1,9 @@
+# Copy to sources.local.yaml and fill in. That file is git-ignored.
+#
+# Overlays app/sources.yaml with where each agreement actually stands, so the
+# public repo carries endpoints and rights without carrying negotiation state.
+# Values: signed | verbal | pending | none. Anything left out defaults to none.
+
+license_status:
+  premium-times: none
+  icir: none
