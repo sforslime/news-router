@@ -4,5 +4,8 @@
   ],
   "routes": [
     { "src": "/(.*)", "dest": "api/index.py" }
+  ],
+  "crons": [
+    { "path": "/v1/admin/ingest?limit=60", "schedule": "0 5 * * *" }
   ]
 }

@@ -7,15 +7,31 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import db, normalize as n
+from app.config import TEST_DATABASE_URL
 from app.serialize import article_out
+
+# Tables the storage fixture rebuilds. Dropped newest-first so the foreign keys
+# come apart in order.
+_TABLES = "article_revisions, articles, clusters, api_keys, sources"
 
 
 @pytest.fixture
 def conn():
-    c = db.connect(":memory:")
+    """A clean Postgres schema per test.
+
+    Storage tests need a real Postgres — the schema uses a generated tsvector
+    column and Postgres text search, so faking it would test something the
+    application does not run. Point TEST_DATABASE_URL at a scratch database
+    (a Neon branch works well) to enable them.
+    """
+    if not TEST_DATABASE_URL:
+        pytest.skip("set TEST_DATABASE_URL to run storage tests")
+    c = db.connect(TEST_DATABASE_URL)
+    c.execute(f"DROP TABLE IF EXISTS {_TABLES} CASCADE")
     db.init_db(c)
     db.sync_sources(c)
-    return c
+    yield c
+    c.close()
 
 
 def make_record(**overrides):
@@ -124,7 +140,12 @@ class TestRights:
 
     def test_body_is_never_stored(self, conn):
         db.upsert_article(conn, make_record())
-        cols = {r[1] for r in conn.execute("PRAGMA table_info(articles)")}
+        cols = {
+            r["column_name"]
+            for r in conn.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'articles'"
+            ).fetchall()
+        }
         assert "body" not in cols and "content" not in cols
 
 

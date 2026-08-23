@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 
 from . import db
 from .config import APP_DIR
-from .routes import articles, clusters, meta, search, sources
+from .routes import admin, articles, clusters, meta, search, sources
 
 STATIC_DIR = APP_DIR / "static"
 
@@ -24,12 +24,11 @@ come back as `null` rather than being silently omitted.
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    conn = db.connect()
-    db.init_db(conn)
-    db.sync_sources(conn)
-    # SQLite connections are single-threaded by default; FastAPI's threadpool
-    # can hand requests to different threads, and reads here are serialised.
-    conn.execute("PRAGMA query_only = ON")
+    # The serving path never writes. Creating the schema and syncing the source
+    # registry are jobs for `python -m app.setup` and for ingestion, not for a
+    # cold start — doing them here would put a write in front of every request
+    # after an idle period, for work that has almost always already been done.
+    conn = db.connect(readonly=True)
     app.state.conn = conn
     yield
     conn.close()
@@ -49,7 +48,7 @@ def create_app() -> FastAPI:
         allow_methods=["GET"],
         allow_headers=["*"],
     )
-    for module in (meta, sources, articles, search, clusters):
+    for module in (meta, sources, articles, search, clusters, admin):
         app.include_router(module.router)
 
     @app.get("/", include_in_schema=False)

@@ -1,5 +1,17 @@
--- News Router storage schema.
--- Written to stay portable to Postgres: no SQLite-only types outside the FTS block.
+-- News Router storage schema (PostgreSQL).
+--
+-- Two deliberate departures from idiomatic Postgres, both to keep this schema
+-- honest about what the data actually is:
+--
+-- 1. Timestamps are TEXT holding ISO-8601 UTC strings, not TIMESTAMPTZ. The
+--    router receives times it does not trust — Nigerian WordPress backdates,
+--    mixes WAT with UTC, and revises timestamps after publication. Storing the
+--    exact string received keeps that visible instead of laundering it through
+--    a type conversion. ISO-8601 UTC sorts correctly as text, so ordering,
+--    range filters and keyset pagination all behave.
+--
+-- 2. Flags are INTEGER 0/1 rather than BOOLEAN, so that comparisons written as
+--    `enabled = 1` mean the same thing here as they did on SQLite.
 
 CREATE TABLE IF NOT EXISTS sources (
   id                TEXT PRIMARY KEY,          -- slug, e.g. 'premium-times'
@@ -28,8 +40,8 @@ CREATE TABLE IF NOT EXISTS articles (
   headline              TEXT NOT NULL,
   dek                   TEXT,
   byline                TEXT,
-  -- published_at is normalised UTC. published_at_reported keeps whatever the site
-  -- claimed, because Nigerian WordPress backdates and mixes WAT/UTC constantly.
+  -- published_at is normalised UTC. published_at_reported keeps whatever the
+  -- site claimed, because the two disagree constantly.
   published_at          TEXT NOT NULL,
   published_at_reported TEXT,
   updated_at            TEXT,
@@ -48,6 +60,14 @@ CREATE TABLE IF NOT EXISTS articles (
   retracted             INTEGER NOT NULL DEFAULT 0,
   retraction_note       TEXT,
   cluster_id            TEXT,
+  -- Full-text index, maintained by Postgres rather than by the application.
+  -- Weighted so a term in the headline outranks the same term in a snippet.
+  search                tsvector GENERATED ALWAYS AS (
+                          setweight(to_tsvector('english', coalesce(headline, '')), 'A') ||
+                          setweight(to_tsvector('english', coalesce(dek, '')), 'B') ||
+                          setweight(to_tsvector('english', coalesce(snippet, '')), 'C') ||
+                          setweight(to_tsvector('english', coalesce(entities, '')), 'D')
+                        ) STORED,
   UNIQUE (source_id, source_article_id)
 );
 
@@ -56,6 +76,7 @@ CREATE INDEX IF NOT EXISTS idx_articles_source     ON articles(source_id, publis
 CREATE INDEX IF NOT EXISTS idx_articles_cluster    ON articles(cluster_id);
 CREATE INDEX IF NOT EXISTS idx_articles_hash       ON articles(content_hash);
 CREATE INDEX IF NOT EXISTS idx_articles_firstseen  ON articles(first_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_articles_search     ON articles USING GIN (search);
 
 -- Every observed change to a story. This is what makes corrections and
 -- retractions propagate, and what exposes stealth edits.
@@ -89,14 +110,4 @@ CREATE TABLE IF NOT EXISTS api_keys (
   rate_per_min  INTEGER NOT NULL DEFAULT 60,
   enabled       INTEGER NOT NULL DEFAULT 1,
   created_at    TEXT NOT NULL
-);
-
--- SQLite full-text search. On Postgres this becomes a tsvector column + GIN index.
-CREATE VIRTUAL TABLE IF NOT EXISTS articles_fts USING fts5(
-  article_id UNINDEXED,
-  headline,
-  dek,
-  snippet,
-  entities,
-  tokenize = 'unicode61 remove_diacritics 2'
 );

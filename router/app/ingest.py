@@ -21,7 +21,6 @@ def ingest_source(conn, source: dict, limit: int, since: str | None) -> dict:
 
     for rec in records:
         stats[db.upsert_article(conn, rec)] += 1
-    conn.commit()
     db.mark_ingest(conn, source["id"], error=None)
     return stats
 

@@ -16,6 +16,8 @@ at any tier.
 ```bash
 python3 -m venv .venv && ./.venv/bin/pip install -r requirements-dev.txt
 
+export DATABASE_URL='postgresql://…'          # see Storage below
+./.venv/bin/python -m app.setup               # create tables, load sources.yaml
 ./.venv/bin/python -m app.ingest --source premium-times --limit 60
 ./.venv/bin/python -m uvicorn app.main:app --port 8099
 ```
@@ -129,44 +131,71 @@ tier-1 install or an agreed allowlist rather than open polling.
 
 ## Storage
 
-SQLite with FTS5. SQL is written to stay portable to Postgres — the only
-SQLite-specific block is the FTS virtual table, which becomes a `tsvector` column
-plus a GIN index.
+Postgres, hosted on Neon. Two decisions in `app/schema.sql` are worth knowing
+before changing anything:
+
+**Timestamps are TEXT, not `timestamptz`.** The router receives times it does
+not trust — publishers backdate, mix WAT with UTC, and revise timestamps after
+the fact. Storing the exact string received keeps that visible rather than
+laundering it through a type conversion. ISO-8601 UTC sorts correctly as text,
+so ordering, range filters and keyset pagination all behave normally.
+
+**Flags are INTEGER 0/1, not `boolean`,** so `enabled = 1` reads the same here
+as it did before the move from SQLite.
+
+Search is a generated `tsvector` column with a GIN index, weighted so a term in
+the headline outranks the same term in a snippet. Queries go through
+`websearch_to_tsquery`, which parses what people actually type — bare words,
+"quoted phrases", `OR`, a leading minus — and cannot be made to throw by stray
+punctuation, so there is no sanitising pass in front of it.
+
+Coming from the old SQLite file:
+
+```bash
+./.venv/bin/python -m app.migrate_from_sqlite --sqlite router.db
+```
+
+That preserves ids, `first_seen_at` and the full revision history, none of which
+can be recovered by re-ingesting — publishers only ever serve what is current.
 
 ## Deployment
 
-Vercel, from the CLI rather than from git:
-
 ```bash
-./.venv/bin/python -m app.ingest --limit 80    # refresh the index
-./.venv/bin/python -c "import sqlite3; c=sqlite3.connect('router.db'); \
-  c.execute('PRAGMA journal_mode=DELETE'); c.execute('VACUUM')"
-rm -f router.db-wal router.db-shm
 vercel deploy --prod
 ```
 
-The database ships inside the deployment. That is why the deploy is a CLI upload
-and not a git push: `router.db` is git-ignored, and `.vercelignore` deliberately
-does not exclude it. Vercel falls back to `.gitignore` when `.vercelignore` is
-absent, which would silently ship an empty index.
+Only code ships. The database is a separate service, so a deploy no longer
+carries the index with it and the site is never frozen between deploys.
 
-A serverless filesystem is read-only, and SQLite writes even to serve reads — the
-WAL journal and the startup source sync both touch disk. So `config._db_path()`
-copies the bundled database to `/tmp` once per cold start and serves from there.
+**The serving path never writes.** `app.state.conn` is opened with
+`default_transaction_read_only = on`. Creating the schema and syncing the source
+registry belong to `python -m app.setup`; ingestion opens its own connection.
 
-**The index is frozen at deploy time.** New articles need a re-ingest and a
-redeploy. Moving to Postgres would let ingestion run against the live site; that
-is the next step if the site needs to stay current on its own.
+**Ingestion runs on a schedule, not on your laptop.** `vercel.json` has Vercel
+Cron calling `GET /v1/admin/ingest` at 05:00 UTC — 6am in Lagos. That endpoint is
+the only write path in the deployed application and refuses anyone who does not
+present `CRON_SECRET`, which Vercel sends as a bearer token. With the secret
+unset it refuses everyone, rather than defaulting open.
+
+Use the **pooled** connection string, the one whose host contains `-pooler`.
+Serverless spawns many short-lived instances, and each opening its own direct
+connection will exhaust Postgres long before traffic does.
 
 ## Tests
 
 ```bash
-./.venv/bin/python -m pytest tests/ -q
+./.venv/bin/python -m pytest tests/ -q                    # logic tests only
+TEST_DATABASE_URL='postgresql://…' ./.venv/bin/python -m pytest tests/ -q
 ```
 
-Covers timezone normalisation, excerpt de-duplication, wire detection, revision
-tracking (including that `first_seen_at` survives a publisher edit) and rights
-enforcement.
+Covers timezone normalisation, excerpt de-duplication, wire detection, volatile
+ad markup, revision tracking (including that `first_seen_at` survives a
+publisher edit) and rights enforcement.
+
+Storage tests need a real Postgres and skip without `TEST_DATABASE_URL` — the
+schema uses a generated `tsvector` and Postgres text search, so a stand-in would
+be testing something the application does not run. A Neon branch makes a good
+scratch database: it is a copy-on-write clone, so it costs nothing to throw away.
 
 ## Not built yet
 
@@ -174,3 +203,4 @@ enforcement.
 - **Tier 1/3/4 adapters.**
 - Retraction detection (the columns and endpoint exist; nothing sets them).
 - Distributed rate limiting — the limiter is in-process, so it is per-instance.
+  Now that Postgres is there, it is the obvious place to put a shared counter.

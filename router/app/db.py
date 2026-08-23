@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
+import psycopg
 import yaml
+from psycopg.rows import dict_row
 
-from .config import DB_PATH, SOURCES_FILE, SOURCES_LOCAL_FILE
+from .config import DATABASE_URL, SOURCES_FILE, SOURCES_LOCAL_FILE
 from .normalize import now_iso
 
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
@@ -16,20 +17,27 @@ SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
 _TRACKED = ("headline", "dek", "snippet", "byline", "image", "section")
 
 
-def connect(path: str | None = None) -> sqlite3.Connection:
-    conn = sqlite3.connect(path or DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA foreign_keys = ON")
+def connect(url: str | None = None, *, readonly: bool = False) -> psycopg.Connection:
+    """Open a connection.
+
+    Autocommit is on: the router's writes are one-row upserts that are already
+    idempotent, and wrapping the serving path in long transactions on a pooled
+    connection is how a serverless app runs Postgres out of connections.
+
+    `readonly` is a guard for the serving path — the API only ever reads, so
+    the connection it uses is told it cannot do anything else.
+    """
+    conn = psycopg.connect(url or DATABASE_URL, row_factory=dict_row, autocommit=True)
+    if readonly:
+        conn.execute("SET default_transaction_read_only = on")
     return conn
 
 
-def init_db(conn: sqlite3.Connection) -> None:
-    conn.executescript(SCHEMA_FILE.read_text())
-    conn.commit()
+def init_db(conn: psycopg.Connection) -> None:
+    conn.execute(SCHEMA_FILE.read_text())
 
 
-def sync_sources(conn: sqlite3.Connection, sources_file: str | None = None) -> int:
+def sync_sources(conn: psycopg.Connection, sources_file: str | None = None) -> int:
     """Load sources.yaml into the sources table. The file is the source of truth
     for licensing flags, so they are overwritten on every sync."""
     data = yaml.safe_load(Path(sources_file or SOURCES_FILE).read_text())
@@ -41,9 +49,9 @@ def sync_sources(conn: sqlite3.Connection, sources_file: str | None = None) -> i
             INSERT INTO sources (id, name, homepage, tier, adapter, endpoint, enabled,
                                  license_status, rights_dek, rights_snippet, rights_image,
                                  attribution_name, timezone, added_at)
-            VALUES (:id,:name,:homepage,:tier,:adapter,:endpoint,:enabled,
-                    :license_status,:rights_dek,:rights_snippet,:rights_image,
-                    :attribution_name,:timezone,:added_at)
+            VALUES (%(id)s,%(name)s,%(homepage)s,%(tier)s,%(adapter)s,%(endpoint)s,%(enabled)s,
+                    %(license_status)s,%(rights_dek)s,%(rights_snippet)s,%(rights_image)s,
+                    %(attribution_name)s,%(timezone)s,%(added_at)s)
             ON CONFLICT(id) DO UPDATE SET
               name=excluded.name, homepage=excluded.homepage, tier=excluded.tier,
               adapter=excluded.adapter, endpoint=excluded.endpoint, enabled=excluded.enabled,
@@ -70,7 +78,6 @@ def sync_sources(conn: sqlite3.Connection, sources_file: str | None = None) -> i
                 "added_at": now_iso(),
             },
         )
-    conn.commit()
     return len(rows)
 
 
@@ -88,23 +95,16 @@ def _local_licences() -> dict[str, str]:
     return {str(k): str(v) for k, v in (data.get("license_status") or {}).items()}
 
 
-def enabled_sources(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    return conn.execute("SELECT * FROM sources WHERE enabled = 1 ORDER BY tier, id").fetchall()
+def enabled_sources(conn: psycopg.Connection) -> list[dict[str, Any]]:
+    return conn.execute(
+        "SELECT * FROM sources WHERE enabled = 1 ORDER BY tier, id"
+    ).fetchall()
 
 
-def _index_fts(conn: sqlite3.Connection, rec: dict[str, Any]) -> None:
-    conn.execute("DELETE FROM articles_fts WHERE article_id = ?", (rec["id"],))
-    entities = " ".join(json.loads(rec.get("entities") or "[]"))
-    conn.execute(
-        "INSERT INTO articles_fts (article_id, headline, dek, snippet, entities) VALUES (?,?,?,?,?)",
-        (rec["id"], rec.get("headline") or "", rec.get("dek") or "", rec.get("snippet") or "", entities),
-    )
-
-
-def upsert_article(conn: sqlite3.Connection, rec: dict[str, Any]) -> str:
+def upsert_article(conn: psycopg.Connection, rec: dict[str, Any]) -> str:
     """Insert, update-with-revision, or skip. Returns 'new' | 'updated' | 'unchanged'."""
     existing = conn.execute(
-        "SELECT * FROM articles WHERE id = ?", (rec["id"],)
+        "SELECT * FROM articles WHERE id = %s", (rec["id"],)
     ).fetchone()
 
     cols = (
@@ -112,17 +112,18 @@ def upsert_article(conn: sqlite3.Connection, rec: dict[str, Any]) -> str:
         "published_at_reported, updated_at, first_seen_at, canonical_url, section, "
         "snippet, image, language, wire_source, paywalled, sponsored, content_hash, entities"
     )
-    placeholders = ", ".join(f":{c.strip()}" for c in cols.split(","))
-    payload = {c.strip(): rec.get(c.strip()) for c in cols.split(",")}
+    names = [c.strip() for c in cols.split(",")]
+    placeholders = ", ".join(f"%({c})s" for c in names)
+    payload = {c: rec.get(c) for c in names}
 
     if existing is None:
         conn.execute(f"INSERT INTO articles ({cols}) VALUES ({placeholders})", payload)
         conn.execute(
             """INSERT INTO article_revisions (article_id, revision, content_hash, headline, dek, snippet, seen_at, changed)
-               VALUES (?,1,?,?,?,?,?,'[]')""",
-            (rec["id"], rec["content_hash"], rec["headline"], rec.get("dek"), rec.get("snippet"), rec["first_seen_at"]),
+               VALUES (%s,1,%s,%s,%s,%s,%s,'[]')""",
+            (rec["id"], rec["content_hash"], rec["headline"], rec.get("dek"),
+             rec.get("snippet"), rec["first_seen_at"]),
         )
-        _index_fts(conn, rec)
         return "new"
 
     if existing["content_hash"] == rec["content_hash"]:
@@ -140,38 +141,37 @@ def upsert_article(conn: sqlite3.Connection, rec: dict[str, Any]) -> str:
     # cannot revise out from under us.
     payload["first_seen_at"] = existing["first_seen_at"]
     conn.execute(
-        """UPDATE articles SET headline=:headline, dek=:dek, byline=:byline,
-             published_at=:published_at, published_at_reported=:published_at_reported,
-             updated_at=:updated_at, canonical_url=:canonical_url, section=:section,
-             snippet=:snippet, image=:image, language=:language, wire_source=:wire_source,
-             paywalled=:paywalled, sponsored=:sponsored, content_hash=:content_hash, entities=:entities,
-             revision=:revision
-           WHERE id=:id""",
+        """UPDATE articles SET headline=%(headline)s, dek=%(dek)s, byline=%(byline)s,
+             published_at=%(published_at)s, published_at_reported=%(published_at_reported)s,
+             updated_at=%(updated_at)s, canonical_url=%(canonical_url)s, section=%(section)s,
+             snippet=%(snippet)s, image=%(image)s, language=%(language)s, wire_source=%(wire_source)s,
+             paywalled=%(paywalled)s, sponsored=%(sponsored)s, content_hash=%(content_hash)s,
+             entities=%(entities)s, revision=%(revision)s
+           WHERE id=%(id)s""",
         {**payload, "revision": revision},
     )
     conn.execute(
         """INSERT INTO article_revisions (article_id, revision, content_hash, headline, dek, snippet, seen_at, changed)
-           VALUES (?,?,?,?,?,?,?,?)""",
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
         (rec["id"], revision, rec["content_hash"], rec["headline"], rec.get("dek"),
          rec.get("snippet"), now_iso(), json.dumps(changed)),
     )
-    _index_fts(conn, rec)
     return "updated"
 
 
-def mark_ingest(conn: sqlite3.Connection, source_id: str, error: str | None = None) -> None:
+def mark_ingest(conn: psycopg.Connection, source_id: str, error: str | None = None) -> None:
     conn.execute(
-        "UPDATE sources SET last_ingest_at = ?, last_error = ? WHERE id = ?",
+        "UPDATE sources SET last_ingest_at = %s, last_error = %s WHERE id = %s",
         (now_iso(), error, source_id),
     )
-    conn.commit()
 
 
-def counts(conn: sqlite3.Connection) -> dict[str, int]:
-    return {
-        "sources": conn.execute("SELECT COUNT(*) c FROM sources").fetchone()["c"],
-        "sources_enabled": conn.execute("SELECT COUNT(*) c FROM sources WHERE enabled=1").fetchone()["c"],
-        "articles": conn.execute("SELECT COUNT(*) c FROM articles").fetchone()["c"],
-        "revisions": conn.execute("SELECT COUNT(*) c FROM article_revisions").fetchone()["c"],
-        "clusters": conn.execute("SELECT COUNT(*) c FROM clusters").fetchone()["c"],
-    }
+def counts(conn: psycopg.Connection) -> dict[str, int]:
+    row = conn.execute(
+        """SELECT (SELECT COUNT(*) FROM sources)                    AS sources,
+                  (SELECT COUNT(*) FROM sources WHERE enabled = 1)  AS sources_enabled,
+                  (SELECT COUNT(*) FROM articles)                   AS articles,
+                  (SELECT COUNT(*) FROM article_revisions)          AS revisions,
+                  (SELECT COUNT(*) FROM clusters)                   AS clusters"""
+    ).fetchone()
+    return {k: int(v) for k, v in row.items()}

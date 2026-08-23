@@ -18,8 +18,8 @@ async def list_clusters(
 ):
     conn = request.app.state.conn
     rows = conn.execute(
-        """SELECT * FROM clusters WHERE size >= :min_size
-           ORDER BY last_published_at DESC LIMIT :limit""",
+        """SELECT * FROM clusters WHERE size >= %(min_size)s
+           ORDER BY last_published_at DESC LIMIT %(limit)s""",
         {"min_size": min_size, "limit": limit},
     ).fetchall()
     return {
@@ -40,11 +40,11 @@ async def list_clusters(
 @router.get("/v1/clusters/{cluster_id}", summary="Every outlet's version of one story")
 async def get_cluster(cluster_id: str, request: Request, auth: dict = Depends(authenticate)):
     conn = request.app.state.conn
-    cluster = conn.execute("SELECT * FROM clusters WHERE id = ?", (cluster_id,)).fetchone()
+    cluster = conn.execute("SELECT * FROM clusters WHERE id = %s", (cluster_id,)).fetchone()
     if cluster is None:
         raise HTTPException(404, f"No cluster {cluster_id!r}.")
     rows = conn.execute(
-        "SELECT * FROM articles WHERE cluster_id = ? ORDER BY published_at ASC", (cluster_id,)
+        "SELECT * FROM articles WHERE cluster_id = %s ORDER BY published_at ASC", (cluster_id,)
     ).fetchall()
     srcs = sources_map(request)
     return {

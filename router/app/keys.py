@@ -42,9 +42,8 @@ def main() -> int:
             print(f"  {r['key_hash'][:16]}  {r['name']:<24} {r['plan']:<8} {r['rate_per_min']:>5}/min  {state}")
     elif args.cmd == "revoke":
         cur = conn.execute(
-            "UPDATE api_keys SET enabled = 0 WHERE key_hash LIKE ?", (args.prefix + "%",)
+            "UPDATE api_keys SET enabled = 0 WHERE key_hash LIKE %s", (args.prefix + "%",)
         )
-        conn.commit()
         print(f"revoked {cur.rowcount} key(s)")
     return 0
 

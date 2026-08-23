@@ -1,37 +1,22 @@
 import os
-import shutil
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
 ROOT_DIR = APP_DIR.parent
 
+# Postgres. Vercel's Neon integration sets DATABASE_URL; locally it comes from
+# .env.local. The pooled endpoint (host contains "-pooler") is the one to use
+# from serverless — every cold start would otherwise open its own connection
+# and exhaust the server long before traffic did.
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
-def _db_path() -> str:
-    """Where the SQLite file lives.
+# A separate database for the test suite, so tests can drop and rebuild tables
+# without touching real data. Tests that need storage skip when this is unset.
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "")
 
-    On a serverless host the deployment bundle is read-only, and SQLite needs
-    to write even to serve reads — the WAL journal and the startup source sync
-    both touch disk. So the bundled database is copied once per cold start to
-    /tmp, the one writable place, and served from there. The copy is landed
-    under a temporary name and renamed, so a half-written file is never opened
-    if two workers start at the same moment.
-    """
-    if explicit := os.environ.get("ROUTER_DB"):
-        return explicit
+# Shared secret Vercel Cron presents when it calls the ingest endpoint.
+CRON_SECRET = os.environ.get("CRON_SECRET", "")
 
-    bundled = ROOT_DIR / "router.db"
-    if not os.environ.get("VERCEL"):
-        return str(bundled)
-
-    served = Path("/tmp/router.db")
-    if not served.exists() and bundled.exists():
-        staging = served.with_suffix(f".db.{os.getpid()}")
-        shutil.copyfile(bundled, staging)
-        staging.replace(served)
-    return str(served)
-
-
-DB_PATH = _db_path()
 SOURCES_FILE = str(APP_DIR / "sources.yaml")
 # Git-ignored overlay carrying where each agreement actually stands.
 SOURCES_LOCAL_FILE = str(APP_DIR / "sources.local.yaml")

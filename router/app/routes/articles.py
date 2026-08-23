@@ -33,42 +33,42 @@ async def list_articles(
 
     if source:
         ids = [s.strip() for s in source.split(",") if s.strip()]
-        keys = [f":src{i}" for i in range(len(ids))]
+        keys = [f"%(src{i})s" for i in range(len(ids))]
         where.append(f"a.source_id IN ({', '.join(keys)})")
         params.update({f"src{i}": v for i, v in enumerate(ids)})
     if section:
-        where.append("a.section = :section")
+        where.append("a.section = %(section)s")
         params["section"] = section
     if language:
-        where.append("a.language = :language")
+        where.append("a.language = %(language)s")
         params["language"] = language
     if wire_source:
         if wire_source.lower() == "none":
             where.append("a.wire_source IS NULL")
         else:
-            where.append("a.wire_source = :wire")
+            where.append("a.wire_source = %(wire)s")
             params["wire"] = wire_source
     if since:
-        where.append("a.published_at >= :since")
+        where.append("a.published_at >= %(since)s")
         params["since"] = since
     if until:
-        where.append("a.published_at <= :until")
+        where.append("a.published_at <= %(until)s")
         params["until"] = until
     if retracted is not None:
-        where.append("a.retracted = :retracted")
+        where.append("a.retracted = %(retracted)s")
         params["retracted"] = int(retracted)
     if not include_sponsored:
         where.append("a.sponsored = 0")
     if cursor:
         c_pub, c_id = decode_cursor(cursor)
-        where.append("(a.published_at, a.id) < (:c_pub, :c_id)")
+        where.append("(a.published_at, a.id) < (%(c_pub)s, %(c_id)s)")
         params.update({"c_pub": c_pub, "c_id": c_id})
 
     clause = f"WHERE {' AND '.join(where)}" if where else ""
     # Fetch one extra row to decide whether a next page exists.
     rows = conn.execute(
         f"""SELECT a.* FROM articles a {clause}
-            ORDER BY a.published_at DESC, a.id DESC LIMIT :limit""",
+            ORDER BY a.published_at DESC, a.id DESC LIMIT %(limit)s""",
         {**params, "limit": limit + 1},
     ).fetchall()
 
@@ -87,11 +87,11 @@ async def list_articles(
 @router.get("/v1/articles/{article_id}/revisions", summary="Edit history for one article")
 async def article_revisions(article_id: str, request: Request, auth: dict = Depends(authenticate)):
     conn = request.app.state.conn
-    article = conn.execute("SELECT * FROM articles WHERE id = ?", (article_id,)).fetchone()
+    article = conn.execute("SELECT * FROM articles WHERE id = %s", (article_id,)).fetchone()
     if article is None:
         raise HTTPException(404, f"No article {article_id!r}.")
     revs = conn.execute(
-        "SELECT * FROM article_revisions WHERE article_id = ? ORDER BY revision ASC", (article_id,)
+        "SELECT * FROM article_revisions WHERE article_id = %s ORDER BY revision ASC", (article_id,)
     ).fetchall()
     return {
         "article_id": article_id,
@@ -114,7 +114,7 @@ async def article_revisions(article_id: str, request: Request, auth: dict = Depe
 @router.get("/v1/articles/{article_id}", summary="One article")
 async def get_article(article_id: str, request: Request, auth: dict = Depends(authenticate)):
     conn = request.app.state.conn
-    row = conn.execute("SELECT * FROM articles WHERE id = ?", (article_id,)).fetchone()
+    row = conn.execute("SELECT * FROM articles WHERE id = %s", (article_id,)).fetchone()
     if row is None:
         raise HTTPException(404, f"No article {article_id!r}.")
     srcs = sources_map(request)

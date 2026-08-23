@@ -28,10 +28,9 @@ def hash_key(raw: str) -> str:
 def mint_key(conn, name: str, plan: str = "free", rate: int = DEFAULT_RATE_PER_MIN) -> str:
     raw = "nr_" + secrets.token_urlsafe(32)
     conn.execute(
-        "INSERT INTO api_keys (key_hash, name, plan, rate_per_min, enabled, created_at) VALUES (?,?,?,?,1,?)",
+        "INSERT INTO api_keys (key_hash, name, plan, rate_per_min, enabled, created_at) VALUES (%s,%s,%s,%s,1,%s)",
         (hash_key(raw), name, plan, rate, now_iso()),
     )
-    conn.commit()
     return raw  # shown once; only the hash is stored
 
 
@@ -63,7 +62,7 @@ async def authenticate(
         identity, limit, plan, name = f"anon:{request.client.host if request.client else 'unknown'}", ANON_RATE_PER_MIN, "anon", "anonymous"
     else:
         row = conn.execute(
-            "SELECT * FROM api_keys WHERE key_hash = ? AND enabled = 1", (hash_key(raw),)
+            "SELECT * FROM api_keys WHERE key_hash = %s AND enabled = 1", (hash_key(raw),)
         ).fetchone()
         if row is None:
             raise HTTPException(401, "Invalid or disabled API key.")
