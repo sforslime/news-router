@@ -190,7 +190,7 @@ class TestVolatileMarkup:
         rec2 = n.normalize_wordpress(edited, "ripples")
         assert db.upsert_article(conn, rec2) == "updated"
         row = conn.execute(
-            "SELECT changed FROM article_revisions WHERE article_id=? AND revision=2",
+            "SELECT changed FROM article_revisions WHERE article_id=%s AND revision=2",
             (rec2["id"],),
         ).fetchone()
         assert json.loads(row["changed"]) == ["body"]

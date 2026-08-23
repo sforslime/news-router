@@ -167,6 +167,15 @@ vercel deploy --prod
 Only code ships. The database is a separate service, so a deploy no longer
 carries the index with it and the site is never frozen between deploys.
 
+The API reads as `router_reader`, a role holding `SELECT` and nothing else, so
+a write from the serving path fails on permissions rather than on the honour
+system. Do not be tempted to enforce that with
+`SET default_transaction_read_only = on` instead: the setting survives on the
+server connection after a pooler takes it back, and the next caller inherits
+it — which is how the nightly ingest first broke. Neon's pooler refuses the
+equivalent startup option outright. Credentials are the only mechanism that
+travels correctly through a pooler.
+
 **The serving path never writes.** `app.state.conn` is opened with
 `default_transaction_read_only = on`. Creating the schema and syncing the source
 registry belong to `python -m app.setup`; ingestion opens its own connection.

@@ -8,7 +8,12 @@ import psycopg
 import yaml
 from psycopg.rows import dict_row
 
-from .config import DATABASE_URL, SOURCES_FILE, SOURCES_LOCAL_FILE
+from .config import (
+    DATABASE_URL_DIRECT,
+    DATABASE_URL_READONLY,
+    SOURCES_FILE,
+    SOURCES_LOCAL_FILE,
+)
 from .normalize import now_iso
 
 SCHEMA_FILE = Path(__file__).resolve().parent / "schema.sql"
@@ -20,17 +25,29 @@ _TRACKED = ("headline", "dek", "snippet", "byline", "image", "section")
 def connect(url: str | None = None, *, readonly: bool = False) -> psycopg.Connection:
     """Open a connection.
 
-    Autocommit is on: the router's writes are one-row upserts that are already
-    idempotent, and wrapping the serving path in long transactions on a pooled
-    connection is how a serverless app runs Postgres out of connections.
+    `readonly=True` is the serving path: many short-lived callers, so it goes
+    through the pooled endpoint and is refused write permission at the server.
 
-    `readonly` is a guard for the serving path — the API only ever reads, so
-    the connection it uses is told it cannot do anything else.
+    Everything else writes — the daily ingest, schema setup, the migration —
+    and goes over the direct endpoint instead. Writes happen once a day, so
+    they gain nothing from pooling.
+
+    Read-only is a matter of credentials, not of session state, and that
+    distinction was learned the hard way. Running
+    `SET default_transaction_read_only = on` leaves the setting on the server
+    connection after the pooler takes it back, so the next caller inherits it —
+    which is how the first version of this broke the nightly ingest. Passing it
+    as a startup option instead is refused outright by Neon's pooler. What does
+    work is connecting as a role that only holds SELECT: nothing to leak,
+    nothing to reset, and a write fails on permissions.
+
+    Autocommit is on throughout: every write is an idempotent single-row
+    upsert, and holding transactions open across a pooler is how a serverless
+    app runs a database out of connections.
     """
-    conn = psycopg.connect(url or DATABASE_URL, row_factory=dict_row, autocommit=True)
-    if readonly:
-        conn.execute("SET default_transaction_read_only = on")
-    return conn
+    if url is None:
+        url = DATABASE_URL_READONLY if readonly else DATABASE_URL_DIRECT
+    return psycopg.connect(url, row_factory=dict_row, autocommit=True)
 
 
 def init_db(conn: psycopg.Connection) -> None:

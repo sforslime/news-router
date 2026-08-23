@@ -1,6 +1,4 @@
-# Vercel falls back to .gitignore when this file is absent, which would drop
-# router.db — the whole dataset the deployment serves. So the upload list is
-# spelled out here instead.
+# The database is a hosted service now, so nothing here needs to carry data.
 .venv/
 __pycache__/
 *.pyc
@@ -9,8 +7,9 @@ __pycache__/
 tests/
 .playwright-mcp/
 
-# The WAL sidecars are checkpointed into router.db before deploying; shipping
-# a stale one alongside would shadow the real contents.
+# The old SQLite index, kept locally as the migration's source. Shipping it
+# would upload 1.3 MB the deployment never opens.
+router.db
 router.db-wal
 router.db-shm
 

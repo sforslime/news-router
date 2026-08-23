@@ -10,6 +10,16 @@ ROOT_DIR = APP_DIR.parent
 # and exhaust the server long before traffic did.
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
+# The direct (non-pooled) endpoint, used for writes. Neon's integration sets
+# both; falling back to the pooled URL keeps a single-URL setup working.
+DATABASE_URL_DIRECT = os.environ.get("DATABASE_URL_UNPOOLED") or DATABASE_URL
+
+# Credentials for a role holding SELECT and nothing else, over the pooled
+# endpoint. The API reads through this, so a write from the serving path fails
+# on permissions rather than on the honour system. Falls back to the ordinary
+# URL when unset, which still works — it just stops enforcing the guarantee.
+DATABASE_URL_READONLY = os.environ.get("DATABASE_URL_READONLY") or DATABASE_URL
+
 # A separate database for the test suite, so tests can drop and rebuild tables
 # without touching real data. Tests that need storage skip when this is unset.
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "")
