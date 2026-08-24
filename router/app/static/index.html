@@ -28,6 +28,9 @@ body{
   background-size:100% 2.6rem;
 }
 a{color:var(--ink)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.searchbar:focus-within{box-shadow:0 0 0 3px rgba(31,95,74,.22)}
+.searchbar input:focus-visible{outline:none}
 .wrap{max-width:62rem;margin:0 auto;padding:0 1.5rem 6rem}
 
 .masthead{border-bottom:2px solid var(--ink);padding:1.1rem 0 .7rem;display:flex;
@@ -39,8 +42,8 @@ a{color:var(--ink)}
 .eyebrow{font-family:var(--mono);font-size:.74rem;text-transform:uppercase;letter-spacing:.12em;
   color:var(--accent);margin:0 0 1.4rem}
 h1{font-family:var(--display);font-weight:800;font-size:clamp(2.6rem,7vw,4.6rem);line-height:.96;
-  letter-spacing:-.035em;margin:0 0 1.6rem;max-width:15ch}
-.lede{max-width:54ch;margin:0 0 2.4rem;color:var(--meta);font-size:1.12rem}
+  letter-spacing:-.035em;margin:0 0 1.6rem;max-width:15ch;text-wrap:balance}
+.lede{max-width:54ch;margin:0 0 2.4rem;color:var(--meta);font-size:1.12rem;text-wrap:balance}
 .num{font-family:var(--display);font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums}
 
 .searchbar{display:flex;border:2px solid var(--ink);background:var(--paper-deep)}
@@ -69,7 +72,8 @@ h1{font-family:var(--display);font-weight:800;font-size:clamp(2.6rem,7vw,4.6rem)
 .result__head{font-family:var(--display);font-weight:600;font-size:1.06rem;line-height:1.3;
   letter-spacing:-.012em;margin:0 0 .3rem;text-decoration:none;display:block}
 .result__head:hover{color:var(--accent)}
-.result__dek{color:var(--meta);font-size:.97rem;margin:0}
+.result:hover{background:rgba(20,17,15,.022)}
+.result__dek{color:var(--meta);font-size:.97rem;margin:0;text-wrap:pretty}
 .result__tag{font-family:var(--mono);font-size:.7rem;color:var(--paper);background:var(--accent);
   padding:.1rem .4rem;margin-left:.4rem;letter-spacing:.05em;vertical-align:.12em}
 
@@ -79,13 +83,13 @@ h1{font-family:var(--display);font-weight:800;font-size:clamp(2.6rem,7vw,4.6rem)
 
 h2.section{font-family:var(--display);font-weight:800;font-size:1.9rem;letter-spacing:-.025em;
   margin:0 0 .4rem;padding-top:1rem}
-.section__sub{color:var(--meta);max-width:52ch;margin:0 0 2rem}
+.section__sub{color:var(--meta);max-width:52ch;margin:0 0 2rem;text-wrap:pretty}
 
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:0;
   border-top:1px solid var(--rule);border-left:1px solid var(--rule)}
 .card{border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);padding:1.5rem 1.4rem}
 .card h3{font-family:var(--display);font-weight:600;font-size:1.06rem;letter-spacing:-.01em;margin:0 0 .5rem}
-.card p{margin:0;color:var(--meta);font-size:.97rem}
+.card p{margin:0;color:var(--meta);font-size:.97rem;text-wrap:pretty}
 
 details.dev{margin-top:3.5rem;border-top:2px solid var(--ink);padding-top:1.2rem}
 details.dev summary{font-family:var(--display);font-weight:600;font-size:1.02rem;cursor:pointer;
@@ -113,13 +117,20 @@ details.dev[open] summary::before{content:"–"}
   line-height:1.5;padding:.9rem 1rem;overflow-x:auto;max-height:24rem;white-space:pre}
 .out__meta{font-family:var(--mono);font-size:.72rem;color:var(--meta);margin:.5rem 0 0;letter-spacing:.04em}
 
-.sources{border-top:1px solid var(--rule);margin:0 0 3.5rem}
-.srow{border-bottom:1px solid var(--rule);padding:.75rem 0;display:flex;gap:1rem;align-items:baseline;
-  justify-content:space-between;flex-wrap:wrap}
-.srow__name{font-family:var(--display);font-weight:600;font-size:1rem}
-.srow__meta{font-family:var(--mono);font-size:.75rem;color:var(--meta);letter-spacing:.04em}
-.dot{display:inline-block;width:.5rem;height:.5rem;border-radius:50%;margin-right:.45rem;vertical-align:.02em}
-.dot--on{background:var(--accent)} .dot--off{background:var(--rule)}
+.sources{margin:0 0 3.5rem}
+.sgroup{margin:0 0 2.6rem}
+.sgroup:last-child{margin-bottom:0}
+.sgroup__head{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;
+  color:var(--meta);border-bottom:1px solid var(--ink);padding:0 0 .45rem;
+  display:flex;justify-content:space-between;align-items:baseline;gap:1rem}
+.sgroup__head span:last-child{white-space:nowrap}
+.srow{border-bottom:1px solid var(--rule);padding:.7rem 0;display:flex;align-items:baseline;
+  font-family:var(--display);font-weight:600;font-size:1rem}
+/* The newsrooms that are only listed do not each need their own rule and their
+   own repeated label — as a run of names they read as what they are. */
+.sgroup__inline{display:flex;flex-wrap:wrap;gap:.55rem 1.7rem;color:var(--meta);margin:1rem 0 0}
+.dot{display:inline-block;width:.5rem;height:.5rem;border-radius:50%;margin-right:.6rem;
+  flex:0 0 auto;background:var(--accent)}
 
 .foot{border-top:2px solid var(--ink);margin-top:4rem;padding-top:1rem;
   font-family:var(--mono);font-size:.74rem;color:var(--meta);display:flex;
@@ -128,6 +139,13 @@ details.dev[open] summary::before{content:"–"}
   .result{grid-template-columns:1fr;gap:.35rem}
   .result__src{padding-top:0}
   .result__time{display:inline;margin-left:.5rem}
+  /* 26px is not a tap target. */
+  .chip{padding:.42rem .7rem}
+  .chips{gap:.5rem}
+  .searchbar input{padding:.85rem .75rem;font-size:1rem}
+  .searchbar button{padding:0 1rem}
+  .tally{min-height:3.2rem}
+  h2.section{font-size:1.6rem}
 }
 </style>
 </head>
@@ -163,15 +181,14 @@ details.dev[open] summary::before{content:"–"}
       <button class="chip" type="button">Kwara</button>
     </div>
 
-    <p class="tally" id="tally"></p>
+    <p class="tally" id="tally" role="status" aria-live="polite"></p>
     <div id="shared"></div>
     <div class="results" id="results"></div>
   </section>
 
   <h2 class="section">Who is in the index</h2>
   <p class="section__sub">
-    The newsrooms the router knows about. A filled dot means it is being indexed
-    today; the rest are known to the router but not read from.
+    Every newsroom the router knows about, and which of them it actually read today.
   </p>
   <div class="sources" id="sources"></div>
 
@@ -306,6 +323,30 @@ function when(iso){
   return d.toLocaleDateString("en-GB", {day:"numeric", month:"short"});
 }
 
+// Two groups, not eleven rows each captioned "not indexed". The ones being read
+// carry a row apiece; the rest are a run of names, which is all they are so far.
+function roster(list){
+  const by = (a,b) => a.name.localeCompare(b.name);
+  const on  = list.filter(s => s.enabled).sort(by);
+  const off = list.filter(s => !s.enabled).sort(by);
+  const lastRead = on.map(s => s.last_ingest_at).filter(Boolean).sort().pop();
+
+  const head = (label, n) => `<div class="sgroup__head"><span>${label}</span>`
+    + `<span>${n} newsroom${n === 1 ? "" : "s"}</span></div>`;
+
+  let html = `<div class="sgroup">`
+    + head(lastRead ? `Indexed &middot; last read ${when(lastRead)}` : "Indexed", on.length)
+    + on.map(s => `<div class="srow"><span class="dot"></span>${esc(s.name)}</div>`).join("")
+    + `</div>`;
+
+  if (off.length) html += `<div class="sgroup">`
+    + head("Known, not read from", off.length)
+    + `<div class="sgroup__inline">${off.map(s => `<span>${esc(s.name)}</span>`).join("")}</div>`
+    + `</div>`;
+
+  return html;
+}
+
 async function boot(){
   try{
     const [h, s] = await Promise.all([
@@ -316,17 +357,7 @@ async function boot(){
     $("#srcCount").textContent = h.counts.sources_enabled.toLocaleString();
     $("#mastMeta").textContent = "Prototype / v0.1 · " + h.counts.sources_enabled + " newsrooms";
 
-    $("#sources").innerHTML = s.sources
-      .sort((a,b) => (b.enabled - a.enabled) || a.name.localeCompare(b.name))
-      .map(src => `
-        <div class="srow">
-          <span class="srow__name">
-            <span class="dot ${src.enabled ? "dot--on" : "dot--off"}"></span>${esc(src.name)}
-          </span>
-          <span class="srow__meta">
-            ${src.enabled ? "indexed" : "not indexed"}
-          </span>
-        </div>`).join("");
+    $("#sources").innerHTML = roster(s.sources);
   }catch(e){ /* the page still works without the counts */ }
 }
 
@@ -334,8 +365,18 @@ async function search(q){
   if(!q) return;
   $("#tally").innerHTML = "searching…";
   $("#shared").innerHTML = "";
-  const r = await fetch("/v1/search?limit=25&q=" + encodeURIComponent(q));
-  const d = await r.json();
+
+  let d;
+  try{
+    const r = await fetch("/v1/search?limit=25&q=" + encodeURIComponent(q));
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    d = await r.json();
+  }catch(err){
+    $("#tally").textContent = "The index could not be reached just now. Try again in a moment.";
+    $("#results").innerHTML = "";
+    return;
+  }
+
   const outlets = new Set(d.articles.map(a => a.source.name));
 
   $("#tally").innerHTML = `<strong>${d.count}</strong> report${d.count===1?"":"s"} `
@@ -376,15 +417,20 @@ async function runIt(btn, path){
   const ep = btn.closest(".ep");
   ep.querySelectorAll(".out, .out__meta").forEach(n => n.remove());
   const t0 = performance.now();
-  const r = await fetch(path);
-  const ms = Math.round(performance.now() - t0);
-  const body = await r.json();
   const pre = document.createElement("pre");
   pre.className = "out";
-  pre.textContent = JSON.stringify(body, null, 2).slice(0, 6000);
   const meta = document.createElement("p");
   meta.className = "out__meta";
-  meta.textContent = `${r.status} · ${ms} ms · ${(JSON.stringify(body).length/1024).toFixed(1)} kB`;
+  try{
+    const r = await fetch(path);
+    const ms = Math.round(performance.now() - t0);
+    const body = await r.json();
+    pre.textContent = JSON.stringify(body, null, 2).slice(0, 6000);
+    meta.textContent = `${r.status} · ${ms} ms · ${(JSON.stringify(body).length/1024).toFixed(1)} kB`;
+  }catch(err){
+    pre.textContent = "The request did not complete.";
+    meta.textContent = String(err);
+  }
   ep.append(pre, meta);
 }
 
