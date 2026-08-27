@@ -33,6 +33,7 @@ async def index(auth: dict = Depends(authenticate)):
             "GET /v1/articles/{id}": "One article",
             "GET /v1/articles/{id}/revisions": "Every observed edit, including corrections",
             "GET /v1/search": "Full-text search over headline, dek, snippet, entities",
+            "GET /v1/search/gist": "Streamed gist of recent coverage on a topic (NDJSON)",
             "GET /v1/clusters": "Same story across outlets",
         },
         "rate_limit": {"plan": auth["plan"], "per_minute": auth["limit"], "remaining": auth["remaining"]},

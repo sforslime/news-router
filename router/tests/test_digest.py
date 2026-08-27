@@ -327,3 +327,50 @@ class TestWriterState:
         assert "no gist writer is configured" in _missing_gist_note({"status": "not configured"})
         assert "has not run" in _missing_gist_note({"status": "never run"})
         assert "next one writes it" in _missing_gist_note({"status": "ok", "at": "x"})
+
+
+class TestGroqBackend:
+    def test_no_key_skips_cleanly(self, monkeypatch):
+        monkeypatch.setattr(gist, "GIST_BACKEND", "groq")
+        monkeypatch.setattr(gist, "GROQ_API_KEY", "")
+        stats = gist.generate(None)
+        assert stats["status"] == "not configured" and "GROQ_API_KEY" in stats["detail"]
+
+    def test_cluster_gist_is_tagged_groq(self, conn, monkeypatch):
+        from app import db as db_mod
+        db_mod.upsert_article(conn, make_record(
+            id="premium-times:10", source_id="premium-times", source_article_id="10",
+            headline="NLC general secretary Emmanuel Ugboaja dies at 60",
+            entities=json.dumps(["Emmanuel Ugboaja", "NLC"]), published_at=_iso(3)))
+        db_mod.upsert_article(conn, make_record(
+            id="punch:20", source_id="punch", source_article_id="20",
+            headline="BREAKING: NLC general secretary Ugboaja is dead",
+            entities="[]", published_at=_iso(2)))
+        cluster.run(conn)
+
+        class _Resp:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                body = gist.Gist(summary="Groq wrote this.",
+                                 coverage=[gist.OutletNote(source_id="punch", note="n")]).model_dump_json()
+                return {"choices": [{"message": {"content": body}}]}
+
+        calls = []
+
+        def post(url, **kwargs):
+            calls.append((url, kwargs))
+            return _Resp()
+
+        monkeypatch.setattr(gist, "GIST_BACKEND", "groq")
+        monkeypatch.setattr(gist, "GROQ_API_KEY", "test-key")
+        monkeypatch.setattr(gist, "GIST_MODEL", "llama-3.3-70b-versatile")
+        monkeypatch.setattr(gist.httpx, "post", post)
+
+        stats = gist.generate(conn)
+        assert stats["generated"] == 1 and not stats["errors"]
+        assert calls[0][1]["json"]["response_format"] == {"type": "json_object"}
+        row = conn.execute("SELECT model, summary FROM cluster_gists").fetchone()
+        assert row["model"] == "groq:llama-3.3-70b-versatile"
+        assert row["summary"] == "Groq wrote this."

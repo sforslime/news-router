@@ -78,6 +78,14 @@ h1{font-family:var(--display);font-weight:800;font-size:clamp(2.6rem,7vw,4.6rem)
   padding:.1rem .4rem;margin-left:.4rem;letter-spacing:.05em;vertical-align:.12em}
 
 .shared{border:2px solid var(--accent);background:var(--paper-deep);padding:1rem 1.2rem;margin:0 0 1.5rem}
+.gist{border:2px solid var(--ink);background:var(--paper-deep);padding:1rem 1.2rem;margin:0 0 1.5rem}
+.gist__label{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;
+  color:var(--accent);margin:0 0 .5rem}
+.gist__text{margin:0;white-space:pre-line;font-size:1.02rem}
+.gist__text.is-writing::after{content:"▍";color:var(--accent);animation:gistblink 1s steps(1) infinite}
+@keyframes gistblink{50%{opacity:0}}
+.gist__meta{font-family:var(--mono);font-size:.72rem;color:var(--meta);margin:.6rem 0 0}
+.gist__meta:empty{display:none}
 .shared__note{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;
   color:var(--accent);margin:0 0 .5rem}
 
@@ -181,6 +189,12 @@ details.dev[open] summary::before{content:"–"}
       <button class="chip" type="button">Kwara</button>
     </div>
 
+    <div class="gist" id="gist" hidden>
+      <p class="gist__label">The gist</p>
+      <p class="gist__text" id="gistText"></p>
+      <p class="gist__meta" id="gistMeta"></p>
+    </div>
+
     <p class="tally" id="tally" role="status" aria-live="polite"></p>
     <div id="shared"></div>
     <div class="results" id="results"></div>
@@ -252,6 +266,15 @@ details.dev[open] summary::before{content:"–"}
         <tr><td>limit</td><td>1–100, default 25</td></tr>
       </table>
       <div class="runner"><code>/v1/search?q=fake%20agency</code><button type="button" data-run="/v1/search?q=fake%20agency">Run it →</button></div>
+    </div>
+
+    <div class="ep">
+      <p class="ep__sig"><span class="ep__verb">GET</span> /v1/search/gist</p>
+      <p class="ep__desc">A streamed gist of what has been published about a topic recently — one summary paragraph, then a line per newsroom, written only from licensed metadata. NDJSON; the search bar above is the live demo.</p>
+      <table class="ep__params">
+        <tr><td>q</td><td>required, the topic as you would search it</td></tr>
+        <tr><td>days</td><td>how far back "recently" reaches; default 7, max 30</td></tr>
+      </table>
     </div>
 
     <div class="ep">
@@ -365,6 +388,7 @@ async function search(q){
   if(!q) return;
   $("#tally").innerHTML = "searching…";
   $("#shared").innerHTML = "";
+  $("#gist").hidden = true;
 
   let d;
   try{
@@ -404,6 +428,58 @@ async function search(q){
       </div>
     </div>`).join("")
     : `<div class="result"><div class="result__src">—</div><div><p class="result__dek">Nothing in the index matches that yet. The index currently holds only the most recent reports from each newsroom.</p></div></div>`;
+
+  if (d.count >= 3) gistStream(q);
+}
+
+// The summary streams in below the search bar as it is written. A stale
+// stream (the user searched again) is dropped mid-flight.
+let gistRun = 0;
+async function gistStream(q){
+  const run = ++gistRun;
+  const box = $("#gist"), text = $("#gistText"), meta = $("#gistMeta");
+  box.hidden = false;
+  text.textContent = "";
+  text.classList.add("is-writing");
+  meta.textContent = "";
+
+  try{
+    const r = await fetch("/v1/search/gist?q=" + encodeURIComponent(q));
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "", info = null;
+
+    for(;;){
+      const {done, value} = await reader.read();
+      if (run !== gistRun) { reader.cancel(); return; }
+      buffer += decoder.decode(value ?? new Uint8Array(), {stream: !done});
+      const lines = buffer.split("\n");
+      buffer = done ? "" : lines.pop();
+      for (const line of lines){
+        if (!line.trim()) continue;
+        const ev = JSON.parse(line);
+        if (ev.type === "meta") info = ev;
+        else if (ev.type === "delta") text.textContent += ev.text;
+        else if (ev.type === "status"){
+          text.classList.remove("is-writing");
+          if (ev.status === "too little"){ box.hidden = true; return; }
+          text.textContent = ev.message + " The headlines below still work.";
+          return;
+        }
+        else if (ev.type === "done"){
+          text.classList.remove("is-writing");
+          meta.textContent = `written from ${info.articles} reports across ${info.newsrooms} newsrooms · ${ev.model}${ev.cached ? " · cached" : ""}`;
+        }
+      }
+      if (done) break;
+    }
+  }catch(err){
+    if (run !== gistRun) return;
+    text.classList.remove("is-writing");
+    text.textContent = "The gist could not be written just now — the headlines below still work.";
+  }
+  text.classList.remove("is-writing");
 }
 
 $("#searchForm").addEventListener("submit", e => { e.preventDefault(); search($("#q").value.trim()); });

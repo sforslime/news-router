@@ -49,14 +49,21 @@ HTTP_TIMEOUT = float(os.environ.get("ROUTER_HTTP_TIMEOUT", "25"))
 #   claude (default) — the production path; needs ANTHROPIC_API_KEY, and left
 #     unset, clustering still runs and gists are skipped with a "not
 #     configured" note.
-#   ollama — a local server for testing, so summaries cost nothing while the
-#     prompt and pipeline are being shaken out. Only reachable from the machine
-#     running it, so the deployed cron never uses this.
+#   groq — a hosted API with a free tier, for testing without a laptop in the
+#     loop; needs GROQ_API_KEY and works from the deployed site too.
+#   ollama — a local server for testing fully offline. Only reachable from the
+#     machine running it, so the deployed cron never uses this.
 # ROUTER_GIST_MODEL names the model within whichever backend is active.
 GIST_BACKEND = os.environ.get("ROUTER_GIST_BACKEND", "claude")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_URL = os.environ.get("ROUTER_GROQ_URL", "https://api.groq.com/openai/v1")
 OLLAMA_URL = os.environ.get("ROUTER_OLLAMA_URL", "http://localhost:11434")
-_DEFAULT_GIST_MODELS = {"claude": "claude-opus-5", "ollama": "gemma4:e4b"}
+_DEFAULT_GIST_MODELS = {
+    "claude": "claude-opus-5",
+    "groq": "llama-3.3-70b-versatile",
+    "ollama": "gemma4:e4b",
+}
 GIST_MODEL = os.environ.get("ROUTER_GIST_MODEL") or _DEFAULT_GIST_MODELS.get(
     GIST_BACKEND, _DEFAULT_GIST_MODELS["claude"]
 )
