@@ -349,8 +349,7 @@ class TestGroqBackend:
         cluster.run(conn)
 
         class _Resp:
-            def raise_for_status(self):
-                pass
+            status_code = 200
 
             def json(self):
                 body = gist.Gist(summary="Groq wrote this.",

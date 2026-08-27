@@ -120,6 +120,20 @@ def _call_claude(client: anthropic.Anthropic, prompt: str) -> Gist:
     return response.parsed_output
 
 
+def _raise_with_body(resp: httpx.Response) -> None:
+    """A bare '404 Not Found' from Groq hides the actual reason (usually 'you
+    do not have access to this model'). Surface the body's message instead."""
+    if resp.status_code < 400:
+        return
+    if not resp.is_closed:
+        resp.read()
+    try:
+        message = resp.json()["error"]["message"]
+    except Exception:
+        message = resp.text[:200]
+    raise RuntimeError(f"HTTP {resp.status_code}: {message}")
+
+
 def _call_groq(prompt: str) -> Gist:
     """Groq's chat-completions API over plain httpx. json_object mode plus the
     schema in the prompt; pydantic validates what actually came back."""
@@ -140,7 +154,7 @@ def _call_groq(prompt: str) -> Gist:
         },
         timeout=60.0,
     )
-    resp.raise_for_status()
+    _raise_with_body(resp)
     return Gist.model_validate_json(resp.json()["choices"][0]["message"]["content"])
 
 
@@ -280,7 +294,7 @@ def _stream_groq(system: str, prompt: str):
         },
         timeout=60.0,
     ) as resp:
-        resp.raise_for_status()
+        _raise_with_body(resp)
         for line in resp.iter_lines():
             if not line.startswith("data: ") or line == "data: [DONE]":
                 continue

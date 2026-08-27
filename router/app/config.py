@@ -61,7 +61,7 @@ GROQ_URL = os.environ.get("ROUTER_GROQ_URL", "https://api.groq.com/openai/v1")
 OLLAMA_URL = os.environ.get("ROUTER_OLLAMA_URL", "http://localhost:11434")
 _DEFAULT_GIST_MODELS = {
     "claude": "claude-opus-5",
-    "groq": "llama-3.3-70b-versatile",
+    "groq": "openai/gpt-oss-120b",
     "ollama": "gemma4:e4b",
 }
 GIST_MODEL = os.environ.get("ROUTER_GIST_MODEL") or _DEFAULT_GIST_MODELS.get(
