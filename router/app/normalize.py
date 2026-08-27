@@ -5,15 +5,21 @@ a change-detection hash and to spot wire copy — and are never persisted.
 """
 from __future__ import annotations
 
+import calendar
 import hashlib
 import html
 import json
 import re
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
+
+# Zero-width and other invisible format characters — some outlets watermark
+# their copy with them; stripped wherever HTML is stripped.
+_FORMAT_CHAR_RE = re.compile(r"[\u00ad\u200b-\u200f\u2060\ufeff]")
 
 # Script and style bodies survive plain tag-stripping as text. Beyond being
 # noise, some themes inject ad containers whose element ids are regenerated on
@@ -52,6 +58,10 @@ def strip_html(value: str | None) -> str:
     text = _SCRIPT_RE.sub(" ", value)
     text = _TAG_RE.sub(" ", text)
     text = html.unescape(text)
+    # Several outlets (Peoples Gazette, The ICIR) watermark text with invisible
+    # format characters. They corrupt display and text matching alike, so they
+    # go here, at the shared choke point, not per adapter.
+    text = _FORMAT_CHAR_RE.sub("", text)
     return _WS_RE.sub(" ", text).strip()
 
 
@@ -231,4 +241,111 @@ def normalize_wordpress(post: dict[str, Any], source_id: str) -> dict[str, Any]:
         "sponsored": int(is_sponsored(section, byline)),
         "entities": json.dumps(entities, ensure_ascii=False),
         "raw_status": post.get("status"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# RSS (tier 4). Feeds are fetched and parsed by the adapter with feedparser;
+# what arrives here is a feedparser entry, not raw XML.
+
+# Tracking query parameters. Feeds decorate their permalinks with these, and a
+# guid that changes with the marketing campaign is no guid at all.
+_TRACKING_PARAM_RE = re.compile(r"^utm_|^(fbclid|gclid)$")
+
+# Feed descriptions close with boilerplate that is navigation, not reporting:
+# WordPress appends "The post <title> appeared first on <site>." and Punch's
+# custom feed ends with "Read More: <url>". Left in, both poison deks and the
+# text similarity clustering leans on.
+_FEED_FOOTER_RES = [
+    re.compile(r"\s*The post .{0,300}? appeared first on .{0,120}?\.?\s*$", re.S),
+    re.compile(r"\s*Read More:\s*\S+\s*$"),
+]
+
+_WP_GUID_P_RE = re.compile(r"[?&]p=(\d+)\b")
+
+
+def clean_feed_url(url: str | None) -> str:
+    """Strip tracking parameters so the canonical URL is actually canonical."""
+    if not url:
+        return ""
+    parts = urlsplit(url.strip())
+    query = [
+        (k, v)
+        for k, v in parse_qsl(parts.query, keep_blank_values=True)
+        if not _TRACKING_PARAM_RE.match(k)
+    ]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
+
+
+def _strip_feed_footers(text: str) -> str:
+    for pattern in _FEED_FOOTER_RES:
+        text = pattern.sub("", text)
+    return text.strip()
+
+
+def _struct_to_iso(st) -> str | None:
+    """feedparser reduces every date format a feed invents to a UTC struct_time."""
+    if not st:
+        return None
+    dt = datetime.fromtimestamp(calendar.timegm(st), tz=timezone.utc)
+    return dt.isoformat().replace("+00:00", "Z")
+
+
+def normalize_rss(entry: Any, source_id: str) -> dict[str, Any]:
+    """feedparser entry -> unified router record.
+
+    RSS carries less than wp-json — no body, no real taxonomy, at best an
+    enclosure for an image — so several fields are honest approximations of
+    what the richer tiers provide.
+    """
+    headline = strip_html(entry.get("title"))
+    link = clean_feed_url(entry.get("link"))
+    guid = entry.get("id") or link
+
+    # A WordPress '?p=' guid carries the post id. Preferring it keeps article
+    # ids stable if the outlet is later upgraded from RSS to the WordPress
+    # adapter, where the post id is the native identifier.
+    m = _WP_GUID_P_RE.search(guid)
+    source_article_id = m.group(1) if m else content_hash(clean_feed_url(guid))[:16]
+
+    description = collapse_duplicate(_strip_feed_footers(strip_html(entry.get("summary"))))
+    byline = strip_html(entry.get("author")) or None
+
+    # All <category> values arrive in one flat list. WordPress emits the
+    # section first and the entity tags after it, so that order is kept.
+    tags = [strip_html(t.get("term")) for t in entry.get("tags") or []]
+    tags = [t for t in tags if t]
+    section = tags[0] if tags else None
+    entities = [t for t in tags[1:] if not _is_layout_tag(t)]
+
+    image = None
+    for enclosure in entry.get("enclosures") or []:
+        if str(enclosure.get("type", "")).startswith("image/") and enclosure.get("href"):
+            image = enclosure["href"]
+            break
+
+    return {
+        "id": f"{source_id}:{source_article_id}",
+        "source_id": source_id,
+        "source_article_id": source_article_id,
+        "headline": headline,
+        "dek": truncate(description, 400) or None,
+        "byline": byline,
+        "published_at": _struct_to_iso(entry.get("published_parsed")),
+        "published_at_reported": entry.get("published"),
+        "updated_at": _struct_to_iso(entry.get("updated_parsed")),
+        "first_seen_at": now_iso(),
+        "canonical_url": link,
+        "section": section,
+        "snippet": truncate(description, 320) or None,
+        "image": image,
+        "language": detect_language(f"{headline} {description}"),
+        "content_hash": content_hash(headline, description),
+        # Wire markers often live in dc:creator rather than the description
+        # ("News Agency of Nigeria" is a byline on most syndicated copy).
+        "wire_source": detect_wire(f"{byline or ''} {description}"),
+        "paywalled": 0,
+        "sponsored": int(is_sponsored(section, byline)),
+        "entities": json.dumps(entities, ensure_ascii=False),
+        "raw_status": None,
     }

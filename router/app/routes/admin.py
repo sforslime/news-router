@@ -4,7 +4,7 @@ import secrets
 
 from fastapi import APIRouter, Header, HTTPException
 
-from .. import db
+from .. import cluster, db, gist
 from ..config import CRON_SECRET
 from ..ingest import ingest_source
 
@@ -51,4 +51,26 @@ async def run_ingest(
         "status": "degraded" if failed else "ok",
         "sources": results,
         "counts": totals,
+    }
+
+
+@router.get("/v1/admin/digest", include_in_schema=False)
+async def run_digest(
+    max_gists: int = 25,
+    authorization: str | None = Header(None),
+):
+    """Cluster the recent window, then write story gists. Scheduled after
+    ingest so the morning's articles are grouped and summarised in one pass;
+    same authorisation and same private write connection as ingest."""
+    _authorise(authorization)
+
+    with db.connect() as conn:
+        db.init_db(conn)
+        cluster_stats = cluster.run(conn)
+        gist_stats = gist.generate(conn, max_gists=max_gists)
+
+    return {
+        "status": "degraded" if gist_stats.get("status") == "degraded" else "ok",
+        "clustering": cluster_stats,
+        "gists": gist_stats,
     }

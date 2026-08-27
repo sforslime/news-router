@@ -111,3 +111,15 @@ CREATE TABLE IF NOT EXISTS api_keys (
   enabled       INTEGER NOT NULL DEFAULT 1,
   created_at    TEXT NOT NULL
 );
+
+-- One generated gist per story cluster: a neutral summary plus a per-outlet
+-- note, written by a model from licensed metadata only (never bodies), and
+-- regenerated when input_hash says the underlying coverage moved.
+CREATE TABLE IF NOT EXISTS cluster_gists (
+  cluster_id    TEXT PRIMARY KEY REFERENCES clusters(id),
+  summary       TEXT NOT NULL,
+  coverage      TEXT NOT NULL DEFAULT '[]',  -- JSON: [{source_id, note}]
+  model         TEXT NOT NULL,
+  input_hash    TEXT NOT NULL,               -- hash of member ids + content hashes
+  generated_at  TEXT NOT NULL
+);

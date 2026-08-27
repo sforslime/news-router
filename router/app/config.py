@@ -44,3 +44,10 @@ DEFAULT_RATE_PER_MIN = int(os.environ.get("ROUTER_DEFAULT_RATE", "120"))
 ALLOW_ANON = os.environ.get("ROUTER_ALLOW_ANON", "1") == "1"
 
 HTTP_TIMEOUT = float(os.environ.get("ROUTER_HTTP_TIMEOUT", "25"))
+
+# The gist writer. Left unset, clustering still runs and gist generation is
+# skipped with a "not configured" note — nothing breaks, stories just carry no
+# summary. The key is read here (not implicitly by the SDK) so that gate is
+# explicit.
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+GIST_MODEL = os.environ.get("ROUTER_GIST_MODEL", "claude-opus-5")

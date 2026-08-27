@@ -2,54 +2,11 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import db, normalize as n
-from app.config import TEST_DATABASE_URL
 from app.serialize import article_out
-
-# Tables the storage fixture rebuilds. Dropped newest-first so the foreign keys
-# come apart in order.
-_TABLES = "article_revisions, articles, clusters, api_keys, sources"
-
-
-@pytest.fixture
-def conn():
-    """A clean Postgres schema per test.
-
-    Storage tests need a real Postgres — the schema uses a generated tsvector
-    column and Postgres text search, so faking it would test something the
-    application does not run. Point TEST_DATABASE_URL at a scratch database
-    (a Neon branch works well) to enable them.
-    """
-    if not TEST_DATABASE_URL:
-        pytest.skip("set TEST_DATABASE_URL to run storage tests")
-    c = db.connect(TEST_DATABASE_URL)
-    c.execute(f"DROP TABLE IF EXISTS {_TABLES} CASCADE")
-    db.init_db(c)
-    db.sync_sources(c)
-    yield c
-    c.close()
-
-
-def make_record(**overrides):
-    rec = {
-        "id": "premium-times:1", "source_id": "premium-times", "source_article_id": "1",
-        "headline": "Minister resigns over contract scandal", "dek": "The minister stepped down on Friday.",
-        "byline": "A Reporter", "published_at": "2026-08-21T10:00:00Z",
-        "published_at_reported": "2026-08-21T11:00:00", "updated_at": "2026-08-21T10:00:00Z",
-        "first_seen_at": "2026-08-21T10:05:00Z",
-        "canonical_url": "https://www.premiumtimesng.com/news/1-minister-resigns.html",
-        "section": "Headline Stories", "snippet": "The minister stepped down on Friday after a report.",
-        "image": None, "language": "en", "wire_source": None, "paywalled": 0, "sponsored": 0,
-        "entities": json.dumps(["Bola Tinubu"]),
-    }
-    rec.update(overrides)
-    rec["content_hash"] = n.content_hash(rec["headline"], rec["dek"], rec["snippet"])
-    return rec
-
+from conftest import make_record
 
 class TestNormalize:
     def test_wat_is_converted_to_utc(self):
@@ -194,3 +151,72 @@ class TestVolatileMarkup:
             (rec2["id"],),
         ).fetchone()
         assert json.loads(row["changed"]) == ["body"]
+
+
+class TestRSSNormalize:
+    """Feeds are the thinnest tier and the messiest: tracking junk on links,
+    boilerplate footers, invisible watermark characters in headlines."""
+
+    def _entry(self, **overrides):
+        entry = {
+            "title": "Gombe United appoint ex-Lobi Stars’ coach as technical adviser",
+            "link": "https://gazettengr.com/gombe-united/?utm_source=rss&utm_medium=rss",
+            "id": "https://gazettengr.com/?p=497249",
+            "summary": "<p>The appointment was announced on Thursday.</p>\n"
+                       "<p>The post <a href='x'>Gombe United appoint coach</a> appeared first on "
+                       "<a href='y'>Peoples Gazette Nigeria</a>.</p>",
+            "author": "News Agency of Nigeria",
+            "published": "Thu, 27 Aug 2026 13:21:58 +0000",
+            "published_parsed": __import__("time").strptime(
+                "2026-08-27 13:21:58", "%Y-%m-%d %H:%M:%S"
+            ),
+            "tags": [{"term": "States"}, {"term": "Gombe United"}, {"term": "Eddy Dombraye"}],
+        }
+        entry.update(overrides)
+        return entry
+
+    def test_wp_guid_post_id_is_the_article_id(self):
+        # '?p=' carries the WordPress post id; using it keeps ids stable if the
+        # outlet is later upgraded to the WordPress adapter.
+        rec = n.normalize_rss(self._entry(), "peoples-gazette")
+        assert rec["id"] == "peoples-gazette:497249"
+
+    def test_tracking_params_are_stripped_from_the_canonical_url(self):
+        rec = n.normalize_rss(self._entry(), "peoples-gazette")
+        assert rec["canonical_url"] == "https://gazettengr.com/gombe-united/"
+
+    def test_wordpress_footer_is_stripped_from_the_description(self):
+        rec = n.normalize_rss(self._entry(), "peoples-gazette")
+        assert rec["dek"] == "The appointment was announced on Thursday."
+        assert "appeared first on" not in rec["snippet"]
+
+    def test_read_more_footer_is_stripped(self):
+        rec = n.normalize_rss(
+            self._entry(summary="The FRSC began a clampdown on Monday. Read More: https://punchng.com/x"),
+            "punch",
+        )
+        assert rec["dek"] == "The FRSC began a clampdown on Monday."
+
+    def test_invisible_watermark_characters_are_removed(self):
+        rec = n.normalize_rss(self._entry(title="Gombe ​⁠‍United appoint coach"), "peoples-gazette")
+        assert rec["headline"] == "Gombe United appoint coach"
+
+    def test_rfc822_date_becomes_utc_iso(self):
+        rec = n.normalize_rss(self._entry(), "peoples-gazette")
+        assert rec["published_at"] == "2026-08-27T13:21:58Z"
+        assert rec["published_at_reported"] == "Thu, 27 Aug 2026 13:21:58 +0000"
+
+    def test_wire_marker_in_the_byline_is_detected(self):
+        # Syndicated copy often names the agency in dc:creator, not the text.
+        rec = n.normalize_rss(self._entry(), "peoples-gazette")
+        assert rec["wire_source"] == "NAN"
+
+    def test_first_category_is_the_section_and_the_rest_are_entities(self):
+        rec = n.normalize_rss(self._entry(), "peoples-gazette")
+        assert rec["section"] == "States"
+        assert json.loads(rec["entities"]) == ["Gombe United", "Eddy Dombraye"]
+
+    def test_permalink_guid_without_post_id_hashes_stably(self):
+        a = n.normalize_rss(self._entry(id="https://punchng.com/story/?utm_source=a"), "punch")
+        b = n.normalize_rss(self._entry(id="https://punchng.com/story/?utm_source=b"), "punch")
+        assert a["source_article_id"] == b["source_article_id"]

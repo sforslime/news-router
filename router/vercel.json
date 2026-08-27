@@ -1,11 +1,24 @@
 {
   "builds": [
-    { "src": "api/index.py", "use": "@vercel/python" }
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python"
+    }
   ],
   "routes": [
-    { "src": "/(.*)", "dest": "api/index.py" }
+    {
+      "src": "/(.*)",
+      "dest": "api/index.py"
+    }
   ],
   "crons": [
-    { "path": "/v1/admin/ingest?limit=60", "schedule": "0 5 * * *" }
+    {
+      "path": "/v1/admin/ingest?limit=60",
+      "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/v1/admin/digest?max_gists=25",
+      "schedule": "30 5 * * *"
+    }
   ]
 }

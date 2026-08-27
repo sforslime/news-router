@@ -1,7 +1,9 @@
+from .rss import RSSAdapter
 from .wordpress import WordPressAdapter
 
 ADAPTERS = {
     "wordpress": WordPressAdapter(),
+    "rss": RSSAdapter(),
 }
 
 
