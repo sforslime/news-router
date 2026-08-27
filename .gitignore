@@ -1,4 +1,19 @@
-# Screenshots from browser-driven checks.
-.playwright-mcp/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.env*
+.vercel
 .DS_Store
+
+# The old SQLite index, kept locally as the migration's source.
+router.db
+router.db-wal
+router.db-shm
+
+# Where each agreement actually stands — local only.
+app/sources.local.yaml
+
+# Screenshots from browser-driven checks.
 .playwright-mcp/

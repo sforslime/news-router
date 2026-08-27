@@ -15,3 +15,8 @@ router.db-shm
 
 # Local only, never leaves the machine.
 app/sources.local.yaml
+
+# Local credentials. Vercel supplies the deployment's own environment; this
+# file only ever needs to exist on the machine that runs ingest by hand.
+.env
+.env*
