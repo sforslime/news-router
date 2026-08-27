@@ -6,6 +6,7 @@ from fastapi import APIRouter, Header, HTTPException
 
 from .. import cluster, db, gist
 from ..config import CRON_SECRET
+from ..digest import _state_of
 from ..ingest import ingest_source
 
 router = APIRouter()
@@ -68,6 +69,7 @@ async def run_digest(
         db.init_db(conn)
         cluster_stats = cluster.run(conn)
         gist_stats = gist.generate(conn, max_gists=max_gists)
+        db.set_state(conn, "gist_writer", _state_of(gist_stats))
 
     return {
         "status": "degraded" if gist_stats.get("status") == "degraded" else "ok",

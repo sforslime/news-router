@@ -123,3 +123,11 @@ CREATE TABLE IF NOT EXISTS cluster_gists (
   input_hash    TEXT NOT NULL,               -- hash of member ids + content hashes
   generated_at  TEXT NOT NULL
 );
+
+-- Small pipeline facts the serving path needs to explain itself — e.g. why a
+-- cluster has no gist (the writer may live on a laptop that was offline).
+CREATE TABLE IF NOT EXISTS pipeline_state (
+  key         TEXT PRIMARY KEY,
+  value       TEXT NOT NULL,     -- JSON
+  updated_at  TEXT NOT NULL
+);

@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 
 from ..auth import authenticate
-from ..db import counts
+from ..db import counts, get_state
 
 router = APIRouter()
 
@@ -18,6 +18,7 @@ async def health(request: Request):
         "status": "degraded" if stale else "ok",
         "counts": counts(conn),
         "failing_sources": [dict(r) for r in stale],
+        "gist_writer": get_state(conn, "gist_writer"),
     }
 
 

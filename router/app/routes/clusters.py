@@ -5,6 +5,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ..auth import authenticate
+from ..db import get_state
 from ..serialize import article_out
 from .common import sources_map
 
@@ -35,6 +36,27 @@ def _gist_out(row, srcs) -> dict | None:
     }
 
 
+def _writer_out(conn) -> dict:
+    """The gist writer's last recorded outcome, for callers wondering why a
+    story has no gist yet. The writer may live on a laptop that is allowed to
+    be closed; that is a state worth reporting, not hiding."""
+    state = get_state(conn, "gist_writer")
+    if state is None:
+        return {"status": "never run", "detail": "No digest has run yet."}
+    return {k: state.get(k) for k in ("status", "detail", "model", "at")}
+
+
+def _missing_gist_note(writer: dict) -> str:
+    status = writer.get("status")
+    if status == "offline":
+        return f"No gist yet: the local model was offline at the last run ({writer.get('at')})."
+    if status == "not configured":
+        return "No gist yet: no gist writer is configured."
+    if status == "never run":
+        return "No gist yet: the gist writer has not run."
+    return "No gist yet: this coverage arrived after the last run; the next one writes it."
+
+
 @router.get("/v1/clusters", summary="Same story, multiple outlets")
 async def list_clusters(
     request: Request,
@@ -52,6 +74,7 @@ async def list_clusters(
     ).fetchall()
     return {
         "count": len(rows),
+        "gist_writer": _writer_out(conn),
         "clusters": [
             {
                 "id": r["id"],
@@ -79,12 +102,16 @@ async def get_cluster(cluster_id: str, request: Request, auth: dict = Depends(au
         "SELECT * FROM cluster_gists WHERE cluster_id = %s", (cluster_id,)
     ).fetchone()
     srcs = sources_map(request)
-    return {
+    gist = _gist_out(gist_row, srcs)
+    out = {
         "id": cluster["id"],
         "label": cluster["label"],
         "size": cluster["size"],
         "first_published_at": cluster["first_published_at"],
         "last_published_at": cluster["last_published_at"],
-        "gist": _gist_out(gist_row, srcs),
+        "gist": gist,
         "coverage": [article_out(r, srcs[r["source_id"]]) for r in rows],
     }
+    if gist is None:
+        out["gist_status"] = _missing_gist_note(_writer_out(conn))
+    return out

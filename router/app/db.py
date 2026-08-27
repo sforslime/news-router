@@ -183,6 +183,26 @@ def mark_ingest(conn: psycopg.Connection, source_id: str, error: str | None = No
     )
 
 
+def set_state(conn: psycopg.Connection, key: str, value: dict[str, Any]) -> None:
+    conn.execute(
+        """INSERT INTO pipeline_state (key, value, updated_at) VALUES (%s, %s, %s)
+           ON CONFLICT (key) DO UPDATE SET
+             value = excluded.value, updated_at = excluded.updated_at""",
+        (key, json.dumps(value, ensure_ascii=False), now_iso()),
+    )
+
+
+def get_state(conn: psycopg.Connection, key: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        "SELECT value, updated_at FROM pipeline_state WHERE key = %s", (key,)
+    ).fetchone()
+    if row is None:
+        return None
+    value = json.loads(row["value"])
+    value["at"] = row["updated_at"]
+    return value
+
+
 def counts(conn: psycopg.Connection) -> dict[str, int]:
     row = conn.execute(
         """SELECT (SELECT COUNT(*) FROM sources)                    AS sources,

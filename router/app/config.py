@@ -45,9 +45,18 @@ ALLOW_ANON = os.environ.get("ROUTER_ALLOW_ANON", "1") == "1"
 
 HTTP_TIMEOUT = float(os.environ.get("ROUTER_HTTP_TIMEOUT", "25"))
 
-# The gist writer. Left unset, clustering still runs and gist generation is
-# skipped with a "not configured" note — nothing breaks, stories just carry no
-# summary. The key is read here (not implicitly by the SDK) so that gate is
-# explicit.
+# The gist writer. Two backends:
+#   claude (default) — the production path; needs ANTHROPIC_API_KEY, and left
+#     unset, clustering still runs and gists are skipped with a "not
+#     configured" note.
+#   ollama — a local server for testing, so summaries cost nothing while the
+#     prompt and pipeline are being shaken out. Only reachable from the machine
+#     running it, so the deployed cron never uses this.
+# ROUTER_GIST_MODEL names the model within whichever backend is active.
+GIST_BACKEND = os.environ.get("ROUTER_GIST_BACKEND", "claude")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-GIST_MODEL = os.environ.get("ROUTER_GIST_MODEL", "claude-opus-5")
+OLLAMA_URL = os.environ.get("ROUTER_OLLAMA_URL", "http://localhost:11434")
+_DEFAULT_GIST_MODELS = {"claude": "claude-opus-5", "ollama": "gemma4:e4b"}
+GIST_MODEL = os.environ.get("ROUTER_GIST_MODEL") or _DEFAULT_GIST_MODELS.get(
+    GIST_BACKEND, _DEFAULT_GIST_MODELS["claude"]
+)

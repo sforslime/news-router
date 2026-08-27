@@ -11,7 +11,7 @@ from app.config import TEST_DATABASE_URL
 
 # Tables the storage fixture rebuilds. Dropped newest-first so the foreign keys
 # come apart in order.
-_TABLES = "cluster_gists, article_revisions, articles, clusters, api_keys, sources"
+_TABLES = "pipeline_state, cluster_gists, article_revisions, articles, clusters, api_keys, sources"
 
 
 @pytest.fixture

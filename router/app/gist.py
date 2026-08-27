@@ -12,9 +12,10 @@ import json
 from typing import Any
 
 import anthropic
-from pydantic import BaseModel
+import httpx
+from pydantic import BaseModel, ValidationError
 
-from .config import ANTHROPIC_API_KEY, GIST_MODEL
+from .config import ANTHROPIC_API_KEY, GIST_BACKEND, GIST_MODEL, OLLAMA_URL
 from .normalize import content_hash, now_iso
 
 # A gist is a few sentences plus one line per outlet — deliberately short.
@@ -73,7 +74,7 @@ def build_prompt(cluster: Any, articles: list[Any], sources: dict[str, Any]) -> 
     return "\n".join(lines).strip()
 
 
-def _call(client: anthropic.Anthropic, prompt: str) -> Gist:
+def _call_claude(client: anthropic.Anthropic, prompt: str) -> Gist:
     response = client.messages.parse(
         model=GIST_MODEL,
         max_tokens=MAX_TOKENS,
@@ -86,6 +87,27 @@ def _call(client: anthropic.Anthropic, prompt: str) -> Gist:
     return response.parsed_output
 
 
+def _call_ollama(prompt: str) -> Gist:
+    """Same prompt, same schema-constrained JSON, against a local server.
+    Generous timeout: a local model on laptop hardware takes what it takes."""
+    resp = httpx.post(
+        f"{OLLAMA_URL}/api/chat",
+        json={
+            "model": GIST_MODEL,
+            "messages": [
+                {"role": "system", "content": SYSTEM},
+                {"role": "user", "content": prompt},
+            ],
+            "format": Gist.model_json_schema(),
+            "stream": False,
+            "options": {"temperature": 0.2},
+        },
+        timeout=300.0,
+    )
+    resp.raise_for_status()
+    return Gist.model_validate_json(resp.json()["message"]["content"])
+
+
 def generate(conn, max_gists: int = 25) -> dict[str, Any]:
     """Write or refresh gists for clusters carried by at least two articles.
 
@@ -93,16 +115,31 @@ def generate(conn, max_gists: int = 25) -> dict[str, Any]:
     serverless invocation stays short; anything left over is picked up on the
     next run, newest stories first.
     """
-    if not ANTHROPIC_API_KEY:
-        return {"status": "not configured", "detail": "ANTHROPIC_API_KEY is unset; gists skipped."}
-
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    if GIST_BACKEND == "ollama":
+        model_tag = f"ollama:{GIST_MODEL}"  # prefixed so a test model's gist is
+        # told apart from a Claude one — and rewritten once the backend switches
+        try:
+            httpx.get(f"{OLLAMA_URL}/api/version", timeout=5.0)
+        except httpx.HTTPError:
+            # Not an error: the writer lives on a laptop that is allowed to be
+            # closed. Recorded as such so the API can say so.
+            return {"status": "offline", "backend": GIST_BACKEND, "model": model_tag,
+                    "detail": f"The local model is offline — nothing answered at {OLLAMA_URL}."}
+        call = _call_ollama
+    else:
+        model_tag = GIST_MODEL
+        if not ANTHROPIC_API_KEY:
+            return {"status": "not configured", "backend": GIST_BACKEND, "model": model_tag,
+                    "detail": "ANTHROPIC_API_KEY is unset; gists skipped."}
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        call = lambda prompt: _call_claude(client, prompt)
     sources = {r["id"]: r for r in conn.execute("SELECT * FROM sources").fetchall()}
     clusters = conn.execute(
         "SELECT * FROM clusters WHERE size >= 2 ORDER BY last_published_at DESC"
     ).fetchall()
 
-    stats: dict[str, Any] = {"status": "ok", "generated": 0, "unchanged": 0, "errors": []}
+    stats: dict[str, Any] = {"status": "ok", "backend": GIST_BACKEND, "model": model_tag,
+                             "generated": 0, "unchanged": 0, "errors": []}
     for cluster in clusters:
         if stats["generated"] >= max_gists:
             break
@@ -115,20 +152,24 @@ def generate(conn, max_gists: int = 25) -> dict[str, Any]:
 
         fresh_hash = input_hash(articles)
         existing = conn.execute(
-            "SELECT input_hash FROM cluster_gists WHERE cluster_id = %s", (cluster["id"],)
+            "SELECT input_hash, model FROM cluster_gists WHERE cluster_id = %s", (cluster["id"],)
         ).fetchone()
-        if existing and existing["input_hash"] == fresh_hash:
+        # A gist is stale when the coverage moved — or when a different model
+        # wrote it, so switching backend replaces test output instead of
+        # serving it forever.
+        if existing and existing["input_hash"] == fresh_hash and existing["model"] == model_tag:
             stats["unchanged"] += 1
             continue
 
         prompt = build_prompt(cluster, articles, sources)
         try:
-            gist = _call(client, prompt)
+            gist = call(prompt)
         except anthropic.RateLimitError:
             # The whole run is rate-limited, not just this cluster.
             stats["errors"].append({"cluster": cluster["id"], "error": "rate limited; run stopped"})
             break
-        except (anthropic.APIStatusError, anthropic.APIConnectionError, RuntimeError) as exc:
+        except (anthropic.APIStatusError, anthropic.APIConnectionError,
+                httpx.HTTPError, ValidationError, KeyError, RuntimeError) as exc:
             stats["errors"].append({"cluster": cluster["id"], "error": str(exc)})
             continue
 
@@ -143,7 +184,7 @@ def generate(conn, max_gists: int = 25) -> dict[str, Any]:
                 "cluster_id": cluster["id"],
                 "summary": gist.summary,
                 "coverage": json.dumps([n.model_dump() for n in gist.coverage], ensure_ascii=False),
-                "model": GIST_MODEL,
+                "model": model_tag,
                 "input_hash": fresh_hash,
                 "generated_at": now_iso(),
             },

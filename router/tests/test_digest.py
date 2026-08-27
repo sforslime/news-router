@@ -207,7 +207,8 @@ class TestGist:
         _FakeAnthropic.calls.clear()
 
         stats = gist.generate(conn)
-        assert stats == {"status": "ok", "generated": 1, "unchanged": 0, "errors": []}
+        assert stats["status"] == "ok" and stats["generated"] == 1 and not stats["errors"]
+        assert stats["backend"] == "claude"
         assert len(_FakeAnthropic.calls) == 1
 
         row = conn.execute("SELECT * FROM cluster_gists").fetchone()
@@ -230,3 +231,99 @@ class TestEntityFiller:
         b = _story("Suspected vandal arrested in Bauchi", source_id="peoples-gazette",
                    entities=["news", "Nigeria", "Nigerian news", "Peoples Gazette"])
         assert not cluster.same_story(a, b)
+
+
+class TestOllamaBackend:
+    def _seed_cluster(self, conn):
+        from app import db as db_mod
+        db_mod.upsert_article(conn, make_record(
+            id="premium-times:10", source_id="premium-times", source_article_id="10",
+            headline="NLC general secretary Emmanuel Ugboaja dies at 60",
+            entities=json.dumps(["Emmanuel Ugboaja", "NLC"]), published_at=_iso(3)))
+        db_mod.upsert_article(conn, make_record(
+            id="punch:20", source_id="punch", source_article_id="20",
+            headline="BREAKING: NLC general secretary Ugboaja is dead",
+            entities="[]", published_at=_iso(2)))
+        cluster.run(conn)
+
+    def _fake_ollama(self, monkeypatch, calls):
+        class _Resp:
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                payload = gist.Gist(
+                    summary="A local model wrote this.",
+                    coverage=[gist.OutletNote(source_id="premium-times", note="n1"),
+                              gist.OutletNote(source_id="punch", note="n2")],
+                ).model_dump_json()
+                return {"message": {"content": payload}}
+
+        def post(url, **kwargs):
+            calls.append(kwargs)
+            return _Resp()
+
+        monkeypatch.setattr(gist.httpx, "post", post)
+        monkeypatch.setattr(gist.httpx, "get", lambda url, **kw: None)
+        monkeypatch.setattr(gist, "GIST_BACKEND", "ollama")
+        monkeypatch.setattr(gist, "GIST_MODEL", "gemma4:e4b")
+
+    def test_local_backend_writes_a_tagged_gist(self, conn, monkeypatch):
+        self._seed_cluster(conn)
+        calls = []
+        self._fake_ollama(monkeypatch, calls)
+
+        stats = gist.generate(conn)
+        assert stats["generated"] == 1 and not stats["errors"]
+        assert calls[0]["json"]["format"] == gist.Gist.model_json_schema()
+
+        row = conn.execute("SELECT * FROM cluster_gists").fetchone()
+        assert row["model"] == "ollama:gemma4:e4b"
+        assert row["summary"] == "A local model wrote this."
+
+    def test_switching_models_rewrites_an_unchanged_cluster(self, conn, monkeypatch):
+        # A test gist must not be served forever just because the coverage
+        # never moved again: a different active model makes it stale.
+        self._seed_cluster(conn)
+        calls = []
+        self._fake_ollama(monkeypatch, calls)
+        gist.generate(conn)
+
+        stats = gist.generate(conn)                  # same model: cached
+        assert stats["generated"] == 0 and stats["unchanged"] == 1
+
+        monkeypatch.setattr(gist, "GIST_MODEL", "mistral:7b")
+        stats = gist.generate(conn)                  # new model: rewritten
+        assert stats["generated"] == 1
+        row = conn.execute("SELECT model FROM cluster_gists").fetchone()
+        assert row["model"] == "ollama:mistral:7b"
+
+
+class TestWriterState:
+    def test_offline_local_model_is_reported_not_raised(self, monkeypatch):
+        import httpx
+
+        def refuse(url, **kw):
+            raise httpx.ConnectError("connection refused")
+
+        monkeypatch.setattr(gist, "GIST_BACKEND", "ollama")
+        monkeypatch.setattr(gist.httpx, "get", refuse)
+        stats = gist.generate(None)
+        assert stats["status"] == "offline"
+        assert "local model is offline" in stats["detail"]
+
+    def test_state_roundtrip(self, conn):
+        from app import db as db_mod
+        db_mod.set_state(conn, "gist_writer", {"status": "offline", "detail": "d"})
+        state = db_mod.get_state(conn, "gist_writer")
+        assert state["status"] == "offline" and state["at"]
+        db_mod.set_state(conn, "gist_writer", {"status": "ok"})
+        assert db_mod.get_state(conn, "gist_writer")["status"] == "ok"
+
+    def test_missing_gist_notes_read_plainly(self):
+        from app.routes.clusters import _missing_gist_note
+        assert "local model was offline" in _missing_gist_note(
+            {"status": "offline", "at": "2026-08-27T18:00:00Z"})
+        assert "no gist writer is configured" in _missing_gist_note({"status": "not configured"})
+        assert "has not run" in _missing_gist_note({"status": "never run"})
+        assert "next one writes it" in _missing_gist_note({"status": "ok", "at": "x"})
