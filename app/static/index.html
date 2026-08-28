@@ -190,7 +190,7 @@ details.dev[open] summary::before{content:"–"}
     </div>
 
     <div class="gist" id="gist" hidden>
-      <p class="gist__label">The gist</p>
+      <p class="gist__label" id="gistLabel">The gist</p>
       <p class="gist__text" id="gistText"></p>
       <p class="gist__meta" id="gistMeta"></p>
     </div>
@@ -414,7 +414,15 @@ async function search(q){
       </p></div>`;
   }
 
-  $("#results").innerHTML = d.articles.length ? d.articles.map(a => `
+  renderResults(d.articles);
+
+  if (d.count >= 3) gistStream(q);
+}
+
+// Search results and a cluster's coverage are both serialised by article_out,
+// so one row renderer covers each.
+function resultRow(a){
+  return `
     <div class="result">
       <div class="result__src">
         ${esc(a.source.name)}
@@ -426,10 +434,13 @@ async function search(q){
         </a>
         <p class="result__dek">${esc(clip(a.dek || a.snippet, 190))}</p>
       </div>
-    </div>`).join("")
-    : `<div class="result"><div class="result__src">—</div><div><p class="result__dek">Nothing in the index matches that yet. The index currently holds only the most recent reports from each newsroom.</p></div></div>`;
+    </div>`;
+}
 
-  if (d.count >= 3) gistStream(q);
+function renderResults(articles){
+  $("#results").innerHTML = articles.length
+    ? articles.map(resultRow).join("")
+    : `<div class="result"><div class="result__src">—</div><div><p class="result__dek">Nothing in the index matches that yet. The index currently holds only the most recent reports from each newsroom.</p></div></div>`;
 }
 
 // The summary streams in below the search bar as it is written. A stale
@@ -438,6 +449,7 @@ let gistRun = 0;
 async function gistStream(q){
   const run = ++gistRun;
   const box = $("#gist"), text = $("#gistText"), meta = $("#gistMeta");
+  $("#gistLabel").textContent = "The gist";
   box.hidden = false;
   text.textContent = "";
   text.classList.add("is-writing");
@@ -482,7 +494,65 @@ async function gistStream(q){
   text.classList.remove("is-writing");
 }
 
-$("#searchForm").addEventListener("submit", e => { e.preventDefault(); search($("#q").value.trim()); });
+// What a visitor sees on arrival is the gist the 05:30 digest already wrote for
+// the day's most-covered story. Reading it is two SELECTs; the page used to open
+// by running a live search, which meant a model call on every single page load.
+let todayGist = null;
+
+async function showTodayGist(){
+  const top = await fetch("/v1/clusters?min_size=2&limit=1&sort=size&hours=24").then(r => r.json());
+  const pick = top.clusters && top.clusters[0];
+  if (!pick) return false;
+
+  const c = await fetch("/v1/clusters/" + encodeURIComponent(pick.id)).then(r => r.json());
+  if (!c.gist) return false;
+
+  const coverage = c.coverage || [];
+  const outlets = new Set(coverage.map(a => a.source.name));
+  const notes = (c.gist.notes || []).filter(n => n.note);
+  const body = c.gist.summary
+    + (notes.length ? "\n\n" + notes.map(n => `${n.outlet}: ${n.note}`).join("\n") : "");
+
+  $("#gistLabel").textContent = "The gist — today";
+  $("#gistText").classList.remove("is-writing");
+  $("#gistText").textContent = body;
+  $("#gistMeta").textContent =
+    `written from ${c.size} report${c.size === 1 ? "" : "s"} across `
+    + `${outlets.size} newsroom${outlets.size === 1 ? "" : "s"} · ${c.gist.model}`
+    + ` · written ${when(c.gist.generated_at)}`;
+  $("#gist").hidden = false;
+
+  $("#tally").innerHTML = `Today's most-covered story — <strong>${c.size}</strong> `
+    + `report${c.size === 1 ? "" : "s"} across <strong>${outlets.size}</strong> `
+    + `newsroom${outlets.size === 1 ? "" : "s"}`;
+  renderResults(coverage);
+
+  todayGist = {label: $("#gistLabel").textContent, text: body,
+               meta: $("#gistMeta").textContent, tally: $("#tally").innerHTML,
+               results: $("#results").innerHTML};
+  return true;
+}
+
+// Emptying the search box puts the day's gist back rather than leaving a gap.
+function restoreTodayGist(){
+  if (!todayGist) return;
+  gistRun++;                                   // drop any stream still in flight
+  $("#gistLabel").textContent = todayGist.label;
+  $("#gistText").classList.remove("is-writing");
+  $("#gistText").textContent = todayGist.text;
+  $("#gistMeta").textContent = todayGist.meta;
+  $("#gist").hidden = false;
+  $("#tally").innerHTML = todayGist.tally;
+  $("#results").innerHTML = todayGist.results;
+  $("#shared").innerHTML = "";
+}
+
+$("#searchForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const q = $("#q").value.trim();
+  if (!q) { restoreTodayGist(); return; }
+  search(q);
+});
 document.querySelectorAll(".chip").forEach(c =>
   c.addEventListener("click", () => { $("#q").value = c.textContent; search(c.textContent); }));
 
@@ -523,7 +593,9 @@ async function runIt(btn, path){
 })();
 
 boot();
-search("fake agency");
+showTodayGist()
+  .catch(() => false)
+  .then(ok => { if (!ok) search("fake agency"); });
 </script>
 </body>
 </html>

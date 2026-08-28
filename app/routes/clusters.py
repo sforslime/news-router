@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -57,20 +58,45 @@ def _missing_gist_note(writer: dict) -> str:
     return "No gist yet: this coverage arrived after the last run; the next one writes it."
 
 
+# Sort keys are whitelisted rather than interpolated: the value reaches an
+# ORDER BY, which takes no placeholder.
+_CLUSTER_SORTS = {
+    "recent": "c.last_published_at DESC",
+    # Recency breaks the tie, so "the biggest story" stays stable between calls
+    # instead of shuffling whenever two clusters are the same size.
+    "size": "c.size DESC, c.last_published_at DESC",
+}
+
+
 @router.get("/v1/clusters", summary="Same story, multiple outlets")
 async def list_clusters(
     request: Request,
     min_size: int = Query(2, ge=1, description="Only clusters carried by at least this many articles"),
     limit: int = Query(25, ge=1, le=100),
+    sort: str = Query("recent", description="'recent' — newest first; 'size' — most-covered first"),
+    hours: int | None = Query(None, ge=1, description="Only clusters last published within this many hours"),
     auth: dict = Depends(authenticate),
 ):
+    if sort not in _CLUSTER_SORTS:
+        raise HTTPException(400, f"sort must be one of: {', '.join(sorted(_CLUSTER_SORTS))}.")
+
+    params: dict = {"min_size": min_size, "limit": limit}
+    window = ""
+    if hours is not None:
+        # Timestamps are stored as ISO-8601 UTC text, which compares correctly
+        # as text — same trick the clustering window uses.
+        params["cutoff"] = (
+            datetime.now(timezone.utc) - timedelta(hours=hours)
+        ).isoformat().replace("+00:00", "Z")
+        window = "AND c.last_published_at >= %(cutoff)s"
+
     conn = request.app.state.conn
     rows = conn.execute(
-        """SELECT c.*, g.summary AS gist_summary
+        f"""SELECT c.*, g.summary AS gist_summary
            FROM clusters c LEFT JOIN cluster_gists g ON g.cluster_id = c.id
-           WHERE c.size >= %(min_size)s
-           ORDER BY c.last_published_at DESC LIMIT %(limit)s""",
-        {"min_size": min_size, "limit": limit},
+           WHERE c.size >= %(min_size)s {window}
+           ORDER BY {_CLUSTER_SORTS[sort]} LIMIT %(limit)s""",
+        params,
     ).fetchall()
     return {
         "count": len(rows),

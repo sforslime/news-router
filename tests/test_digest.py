@@ -373,3 +373,56 @@ class TestGroqBackend:
         row = conn.execute("SELECT model, summary FROM cluster_gists").fetchone()
         assert row["model"] == "groq:llama-3.3-70b-versatile"
         assert row["summary"] == "Groq wrote this."
+
+
+class TestClusterListing:
+    """The query options the front page leans on. Arrival picks the day's gist
+    with sort=size inside a window, so both have to hold — and the default
+    ordering has to stay exactly as it was for existing callers."""
+
+    def _client(self, conn):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from app.routes import clusters as clusters_route
+
+        # A bare app: the real one's lifespan would open a second, read-only
+        # connection, and these tests want the fixture's scratch schema.
+        app = FastAPI()
+        app.include_router(clusters_route.router)
+        app.state.conn = conn
+        return TestClient(app)
+
+    def _cluster(self, conn, cid, size, hours_ago):
+        conn.execute(
+            """INSERT INTO clusters (id, label, lead_article_id, size,
+                                     first_published_at, last_published_at,
+                                     created_at, updated_at)
+               VALUES (%s, %s, NULL, %s, %s, %s, %s, %s)""",
+            (cid, f"story {cid}", size, _iso(hours_ago + 1), _iso(hours_ago),
+             _iso(hours_ago), _iso(hours_ago)),
+        )
+
+    def _ids(self, client, query):
+        return [c["id"] for c in client.get(query).json()["clusters"]]
+
+    def test_sort_size_puts_the_most_covered_first(self, conn):
+        self._cluster(conn, "c-small", size=2, hours_ago=1)   # newest, but small
+        self._cluster(conn, "c-big", size=5, hours_ago=5)
+        client = self._client(conn)
+
+        assert self._ids(client, "/v1/clusters?sort=size")[0] == "c-big"
+        # Callers who pass nothing keep the old behaviour: newest first.
+        assert self._ids(client, "/v1/clusters")[0] == "c-small"
+
+    def test_hours_excludes_anything_older_than_the_window(self, conn):
+        self._cluster(conn, "c-today", size=3, hours_ago=2)
+        self._cluster(conn, "c-lastweek", size=9, hours_ago=200)
+        client = self._client(conn)
+
+        # The bigger cluster is the older one, so the window has to do the work.
+        assert self._ids(client, "/v1/clusters?sort=size&hours=24") == ["c-today"]
+        assert "c-lastweek" in self._ids(client, "/v1/clusters?sort=size")
+
+    def test_unknown_sort_is_rejected_rather_than_ignored(self, conn):
+        assert self._client(conn).get("/v1/clusters?sort=nonsense").status_code == 400
