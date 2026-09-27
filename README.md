@@ -5,7 +5,9 @@
 One read API across Nigerian newsrooms. Every ingestion tier normalises into a
 single schema, so a consumer never learns whether a story arrived from an
 installed content API, an open WordPress endpoint, or RSS. Ten outlets are
-indexed today, and the same story is grouped across them.
+indexed today, and the same story is grouped across them. Each grouped story
+gets a short gist — what happened, then a line on what each outlet's coverage
+adds — written only from what the outlets published.
 
 **Metadata only.** Headline, dek, byline, timestamps, canonical URL, section,
 snippet and thumbnail. Article bodies are read transiently during ingestion — to
@@ -26,10 +28,14 @@ export DATABASE_URL='postgresql://…'          # see Storage below
 
 Then open `http://localhost:8099/`.
 
-The digest step needs a gist writer: `ANTHROPIC_API_KEY` for the production
-path, or `ROUTER_GIST_BACKEND=groq` (hosted, free tier) or `=ollama` (local,
-offline) for testing. Without one, clustering still runs and gists are skipped
-with a note saying why — which is what `/v1/clusters` then reports.
+The digest step needs a gist writer. Groq is the default and what the deployed
+site uses: set `GROQ_API_KEY` (hosted, free tier; default model
+`openai/gpt-oss-120b`). The alternatives are `ROUTER_GIST_BACKEND=claude` with
+`ANTHROPIC_API_KEY`, or `=ollama` for a local model, fully offline.
+`ROUTER_GIST_MODEL` picks a different model within whichever backend is active.
+Without a key, clustering still runs and gists are skipped with a note saying
+why; a local model that isn't running is reported as offline. Either way,
+`/v1/clusters` then says so.
 
 ## Layout
 
@@ -40,8 +46,9 @@ app/
   adapters/         one per ingestion mechanism — wordpress, rss
   normalize.py      timestamps, doubled excerpts, HTML stripping, wire detection
   cluster.py        group the same story across outlets
-  gist.py           write a cluster's gist; Claude, Groq or a local Ollama
+  gist.py           write a story's gist; Groq by default, Claude or a local Ollama as alternatives
   serialize.py      rights enforcement, applied record by record
+  config.py         settings from the environment, including the gist-writer switch
   db.py schema.sql  Postgres, hosted on Neon
   sources.yaml      the roster — endpoints, tiers, rights flags
   static/index.html the front page, one file, no build step
@@ -58,6 +65,13 @@ live search across every indexed newsroom, the roster with each newsroom's
 agreement shown, and a developer view whose endpoints run against the live index
 and print the real response with timing and payload size.
 
+On arrival the page shows the gist the morning digest already wrote for the
+day's most-covered story (the biggest group from the last 24 hours), so opening
+the page is two database reads rather than a model call. Only when there is no
+stored gist yet does it fall back to a sample search. A search with three or more
+results streams a fresh topic gist into the same box, under the search bar;
+clearing the search puts the day's gist back.
+
 Design follows `premiumtimes-content-api.vercel.app` — same newsprint palette,
 Archivo/Newsreader/IBM Plex Mono, ruled-paper background — so the two read as one
 family. Machine-facing is still the product; this page exists so the work can be
@@ -70,19 +84,23 @@ OpenAPI docs remain at `/docs`.
 | Endpoint | Purpose |
 |---|---|
 | `GET /` | Front page — live search demo and developer view |
-| `GET /v1/health` | Liveness, corpus size, failing sources |
+| `GET /v1` | Endpoint index, with the caller's plan and remaining rate limit |
+| `GET /v1/health` | Liveness, corpus size, failing sources, the gist writer's last outcome |
 | `GET /v1/sources` | Newsrooms indexed, with tier and licensing state |
+| `GET /v1/sources/{id}` | One newsroom, with its article count and date range |
 | `GET /v1/articles` | Unified feed; filter by source, section, language, wire, date |
 | `GET /v1/articles/{id}` | One article |
 | `GET /v1/articles/{id}/revisions` | Every observed edit, including corrections |
 | `GET /v1/search` | Full-text over headline, dek, snippet and entities |
-| `GET /v1/search/gist` | Streamed gist of recent coverage on a topic |
-| `GET /v1/clusters` | Same story across outlets, each with its gist |
+| `GET /v1/search/gist` | Streamed gist of recent coverage on a topic (NDJSON) |
+| `GET /v1/clusters` | Same story across outlets, each with its gist; filter by size and recency (`hours`), `sort=recent` or `size` |
 | `GET /v1/clusters/{id}` | One story: its gist and every outlet's version |
 
 Auth is `X-API-Key` or `Authorization: Bearer`. Issue keys with
-`python -m app.keys issue "Name" --plan pro --rate 600`. Anonymous reads are
-allowed by default at a lower limit; set `ROUTER_ALLOW_ANON=0` in production.
+`python -m app.keys issue "Name" --plan pro --rate 600`; a key without `--rate`
+gets 120 requests a minute (`ROUTER_DEFAULT_RATE`). Anonymous reads are allowed
+by default at 30 a minute (`ROUTER_ANON_RATE`); set `ROUTER_ALLOW_ANON=0` in
+production. `/v1/health` needs no key.
 
 ## Licensing is enforced per record, not per request
 
@@ -121,12 +139,52 @@ source reads as `none`, which is the safe default — it grants nothing. The
 |---|---|---|---|
 | 1 | Installed content API — canonical IDs, webhooks | `content_api` | not built |
 | 2 | Open WordPress REST | `wordpress` | **working** — 3 outlets live |
-| 3 | Gated outlets, metadata only | — | not built |
+| 3 | Gated outlets, metadata only | — | not built — TheCable is listed here, disabled |
 | 4 | RSS, headline and link only | `rss` | **working** — 7 outlets live |
 
 Probe of 11 Nigerian outlets (2026-08-21): 9 serve `/wp-json/wp/v2/posts`.
-Vanguard and TheCable return 403 — Cloudflare or REST disabled — and will need a
-tier-1 install or an agreed allowlist rather than open polling.
+Vanguard and TheCable return 403 there — Cloudflare or REST disabled. Vanguard's
+feed is open, so it runs on RSS. TheCable blocks its feed too (probed
+2026-08-27) and will need a tier-1 install or an agreed allowlist rather than
+open polling.
+
+## Stories and gists
+
+**Grouping the same story.** `app/cluster.py` looks at articles from the last
+72 hours and puts two of them in the same story when any one of these holds:
+
+- their headlines share at least 3 words, and those shared words make up at
+  least half of the shorter headline;
+- the publishers tagged both with at least 2 of the same people, places or
+  organisations;
+- both are wire copy from the same agency, and at least half of all the words
+  across the two headlines are shared.
+
+Common filler words ("says", "Nigeria", "breaking") don't count, and neither do
+tags that are only filler. Words in a publisher's tags count as headline words.
+Only articles from different outlets are matched, and sponsored or retracted
+items are never grouped. Each run only places articles that don't have a story
+yet, so earlier groupings never get reshuffled.
+
+**Writing the gist.** Once a story has at least two articles, the gist writer
+produces a short neutral summary plus one note per outlet, returned in a fixed
+shape and checked before anything is stored. The model sees only what the API
+itself may serve: headline and outlet name always, and a dek or snippet only
+where that outlet has licensed it. Each gist records a fingerprint of its
+inputs, so a story whose coverage hasn't changed costs nothing on the next run.
+Switching to a different model rewrites it. A run writes at most 25 gists,
+newest stories first, and leaves the rest for the next run. How the last run
+went (worked, not configured, offline, errors) is saved and shown in
+`/v1/clusters` and `/v1/health`, so a missing gist comes with a reason.
+
+**Topic gists.** `GET /v1/search/gist?q=…` summarises recent coverage of any
+search, over the last 7 days by default (`days`, 1–30). It reads the
+best-matching 2 to 12 articles, leaving out sponsored and retracted items, and
+streams the text as it is written: NDJSON, one `meta` line, then `delta` lines,
+then `done`. If there is too little coverage or no writer available, it sends a
+single `status` line instead. The same question within 15 minutes is answered
+from memory, per running instance; the serving path cannot write, so it has
+nowhere durable to cache.
 
 ## Data notes that cost real debugging time
 
@@ -214,11 +272,17 @@ travels correctly through a pooler.
 `default_transaction_read_only = on`. Creating the schema and syncing the source
 registry belong to `python -m app.setup`; ingestion opens its own connection.
 
-**Ingestion runs on a schedule, not on your laptop.** `vercel.json` has Vercel
-Cron calling `GET /v1/admin/ingest` at 05:00 UTC — 6am in Lagos. That endpoint is
-the only write path in the deployed application and refuses anyone who does not
-present `CRON_SECRET`, which Vercel sends as a bearer token. With the secret
-unset it refuses everyone, rather than defaulting open.
+**Ingestion runs on a schedule, not on your laptop.** `vercel.json` has two
+Vercel Cron jobs: `GET /v1/admin/ingest` at 05:00 UTC — 6am in Lagos — fetches
+every enabled newsroom, then `GET /v1/admin/digest` at 05:30 UTC groups the
+morning's articles into stories and writes up to 25 gists. Those two endpoints
+are the only write paths in the deployed application. Both refuse anyone who
+does not present `CRON_SECRET`, which Vercel sends as a bearer token, and with
+the secret unset they refuse everyone, rather than defaulting open.
+
+Gists on the deployed site come from Groq: `GROQ_API_KEY` must be set on
+Vercel. `ROUTER_GIST_BACKEND` defaults to `groq`, so it only needs setting to
+switch to Claude.
 
 Use the **pooled** connection string, the one whose host contains `-pooler`.
 Serverless spawns many short-lived instances, and each opening its own direct
@@ -232,8 +296,15 @@ TEST_DATABASE_URL='postgresql://…' ./.venv/bin/python -m pytest tests/ -q
 ```
 
 Covers timezone normalisation, excerpt de-duplication, wire detection, volatile
-ad markup, revision tracking (including that `first_seen_at` survives a
-publisher edit) and rights enforcement.
+ad markup, RSS parsing, revision tracking (including that `first_seen_at`
+survives a publisher edit) and rights enforcement. On the story side, it covers
+the matching rule (filler words and filler tags carry no weight), that a re-run
+reshuffles nothing, that sponsored copy and a single outlet never form a
+story, and the cluster listing's `sort` and `hours`. For gists, it covers that
+the prompt carries only licensed fields, that the input fingerprint moves with
+membership and edits, and each writer (Claude, Groq, Ollama) against a fake
+model with no network. It also checks how an offline or unconfigured writer is
+reported, and the topic gist's article selection and stream lines.
 
 Storage tests need a real Postgres and skip without `TEST_DATABASE_URL` — the
 schema uses a generated `tsvector` and Postgres text search, so a stand-in would
@@ -251,3 +322,4 @@ scratch database: it is a copy-on-write clone, so it costs nothing to throw away
 - Retraction detection (the columns and endpoint exist; nothing sets them).
 - Distributed rate limiting — the limiter is in-process, so it is per-instance.
   Now that Postgres is there, it is the obvious place to put a shared counter.
+  The topic-gist cache is per-instance for the same reason.

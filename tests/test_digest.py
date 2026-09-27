@@ -186,6 +186,7 @@ class TestGist:
         assert gist.input_hash([a, edited]) != same       # a silent edit moves it
 
     def test_unset_key_skips_cleanly(self, monkeypatch):
+        monkeypatch.setattr(gist, "GIST_BACKEND", "claude")
         monkeypatch.setattr(gist, "ANTHROPIC_API_KEY", "")
         stats = gist.generate(None)
         assert stats["status"] == "not configured"
@@ -202,6 +203,8 @@ class TestGist:
             entities="[]", published_at=_iso(2)))
         cluster.run(conn)
 
+        monkeypatch.setattr(gist, "GIST_BACKEND", "claude")
+        monkeypatch.setattr(gist, "GIST_MODEL", "claude-opus-5")
         monkeypatch.setattr(gist, "ANTHROPIC_API_KEY", "test-key")
         monkeypatch.setattr(gist.anthropic, "Anthropic", _FakeAnthropic)
         _FakeAnthropic.calls.clear()

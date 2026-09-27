@@ -45,16 +45,16 @@ ALLOW_ANON = os.environ.get("ROUTER_ALLOW_ANON", "1") == "1"
 
 HTTP_TIMEOUT = float(os.environ.get("ROUTER_HTTP_TIMEOUT", "25"))
 
-# The gist writer. Two backends:
-#   claude (default) — the production path; needs ANTHROPIC_API_KEY, and left
-#     unset, clustering still runs and gists are skipped with a "not
-#     configured" note.
-#   groq — a hosted API with a free tier, for testing without a laptop in the
-#     loop; needs GROQ_API_KEY and works from the deployed site too.
+# The gist writer. Three backends:
+#   groq (default) — the production writer on the deployed site. A hosted API
+#     with a free tier; needs GROQ_API_KEY, and left unset, clustering still
+#     runs and gists are skipped with a "not configured" note.
+#   claude — the alternative hosted writer; needs ANTHROPIC_API_KEY, with the
+#     same "not configured" behaviour when it is unset.
 #   ollama — a local server for testing fully offline. Only reachable from the
 #     machine running it, so the deployed cron never uses this.
 # ROUTER_GIST_MODEL names the model within whichever backend is active.
-GIST_BACKEND = os.environ.get("ROUTER_GIST_BACKEND", "claude")
+GIST_BACKEND = os.environ.get("ROUTER_GIST_BACKEND", "groq")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_URL = os.environ.get("ROUTER_GROQ_URL", "https://api.groq.com/openai/v1")
