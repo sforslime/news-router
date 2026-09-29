@@ -48,11 +48,13 @@ app/
   cluster.py        group the same story across outlets
   gist.py           write a story's gist; Groq by default, Claude or a local Ollama as alternatives
   serialize.py      rights enforcement, applied record by record
+  auth.py           API keys and the per-instance rate limiter
   config.py         settings from the environment, including the gist-writer switch
   db.py schema.sql  Postgres, hosted on Neon
   sources.yaml      the roster — endpoints, tiers, rights flags
   static/index.html the front page, one file, no build step
   ingest.py digest.py setup.py keys.py    the CLIs
+  migrate_from_sqlite.py                  one-off move from the old SQLite file
 api/index.py        Vercel entry point
 tests/
 ```
@@ -95,6 +97,8 @@ OpenAPI docs remain at `/docs`.
 | `GET /v1/search/gist` | Streamed gist of recent coverage on a topic (NDJSON) |
 | `GET /v1/clusters` | Same story across outlets, each with its gist; filter by size and recency (`hours`), `sort=recent` or `size` |
 | `GET /v1/clusters/{id}` | One story: its gist and every outlet's version |
+| `GET /v1/admin/ingest` | Scheduled job only (needs `CRON_SECRET`): fetch every enabled newsroom |
+| `GET /v1/admin/digest` | Scheduled job only (needs `CRON_SECRET`): group stories, write up to 25 gists |
 
 Auth is `X-API-Key` or `Authorization: Bearer`. Issue keys with
 `python -m app.keys issue "Name" --plan pro --rate 600`; a key without `--rate`
