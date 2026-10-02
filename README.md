@@ -1,5 +1,7 @@
 # Nigerian News Router
 
+Built by SAYOL labs.
+
 **Live:** https://news-router.vercel.app · [API docs](https://news-router.vercel.app/docs)
 
 One read API across Nigerian newsrooms. Every ingestion tier normalises into a
