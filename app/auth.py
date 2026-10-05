@@ -34,15 +34,42 @@ def mint_key(conn, name: str, plan: str = "free", rate: int = DEFAULT_RATE_PER_M
     return raw  # shown once; only the hash is stored
 
 
-def _consume(identity: str, limit: int) -> tuple[bool, int]:
+def _consume(identity: str, limit: int, window: float = _WINDOW) -> tuple[bool, int]:
     now = time.monotonic()
     bucket = _hits[identity]
-    while bucket and now - bucket[0] > _WINDOW:
+    while bucket and now - bucket[0] > window:
         bucket.popleft()
     if len(bucket) >= limit:
         return False, 0
     bucket.append(now)
     return True, limit - len(bucket)
+
+
+# Fresh search summaries each cost a model call, so they get their own, much
+# tighter allowance on top of the request limit. Summaries served from cache
+# are free and never counted. Per instance, like everything else here.
+GIST_LIMITS = (
+    ("gist10m", 5, 10 * 60),    # per visitor: 5 in any 10 minutes
+    ("gistday", 20, 24 * 3600), # per visitor: 20 a day
+)
+GIST_INSTANCE_DAILY = 300       # all visitors together, per instance
+
+
+def gist_allowance(identity: str) -> bool:
+    """Whether this visitor may have one more freshly written summary. Checks
+    every limit before spending any, so a refusal costs nothing."""
+    checks = [(f"{name}:{identity}", limit, window) for name, limit, window in GIST_LIMITS]
+    checks.append(("gistday:all", GIST_INSTANCE_DAILY, 24 * 3600))
+    now = time.monotonic()
+    for key, limit, window in checks:
+        bucket = _hits[key]
+        while bucket and now - bucket[0] > window:
+            bucket.popleft()
+        if len(bucket) >= limit:
+            return False
+    for key, limit, window in checks:
+        _consume(key, limit, window)
+    return True
 
 
 async def authenticate(

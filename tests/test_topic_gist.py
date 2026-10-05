@@ -117,3 +117,85 @@ class TestStreamEvents:
         assert [e["type"] for e in events] == ["meta", "delta", "status"]
         assert events[-1]["status"] == "error"
         assert _gist_cache == {}  # a broken run is not cached
+
+
+class TestSpamGuard:
+    """Search summaries are written on visitors' demand, so they are cached on the
+    articles read and rationed per visitor. Cached answers cost nothing."""
+    _sources = {"premium-times": {"id": "premium-times", "attribution_name": "PT"}}
+
+    def setup_method(self):
+        from app import auth
+        _gist_cache.clear()
+        auth._hits.clear()
+
+    def _rows(self, start, n=3):
+        return [make_record(id=f"premium-times:{i}", source_article_id=str(i),
+                            headline=f"Osun update {i}") for i in range(start, start + n)]
+
+    def _count_calls(self, monkeypatch):
+        calls = []
+
+        def write(system, prompt):
+            calls.append(prompt)
+            yield "A gist."
+        monkeypatch.setattr(gist, "stream_writer", lambda: (write, "groq:test"))
+        return calls
+
+    def _run(self, q, rows, identity="anon:1.2.3.4"):
+        return [json.loads(line) for line in _gist_lines(q, 7, rows, self._sources, identity)]
+
+    def test_different_words_for_the_same_articles_share_one_summary(self, monkeypatch):
+        calls = self._count_calls(monkeypatch)
+        rows = self._rows(0)
+        assert self._run("nysc", rows)[-1]["cached"] is False
+        assert self._run("nysc camp", rows)[-1]["cached"] is True
+        assert len(calls) == 1
+
+    def test_sixth_fresh_summary_in_ten_minutes_is_refused(self, monkeypatch):
+        calls = self._count_calls(monkeypatch)
+        for i in range(5):
+            assert self._run(f"topic {i}", self._rows(i * 10))[-1]["type"] == "done"
+        last = self._run("topic 5", self._rows(50))
+        assert last[-1] == {"type": "status", "status": "busy",
+                            "message": "Summaries are paused for a bit."}
+        assert len(calls) == 5
+        # Another visitor is unaffected.
+        assert self._run("topic 5", self._rows(50), identity="anon:5.6.7.8")[-1]["type"] == "done"
+
+    def test_cached_summaries_do_not_use_up_the_allowance(self, monkeypatch):
+        self._count_calls(monkeypatch)
+        rows = self._rows(0)
+        for _ in range(20):
+            self._run("osun", rows)
+        for i in range(1, 5):
+            assert self._run(f"topic {i}", self._rows(i * 10))[-1]["type"] == "done"
+
+    def test_search_and_digest_use_their_own_groq_keys(self, monkeypatch):
+        import contextlib
+        monkeypatch.setattr(gist, "GROQ_API_KEY", "digest-key")
+        monkeypatch.setattr(gist, "GROQ_SEARCH_API_KEY", "search-key")
+        seen = {}
+
+        class Resp:
+            status_code = 200
+            def iter_lines(self):
+                return iter(["data: [DONE]"])
+            def json(self):
+                return {"choices": [{"message": {"content":
+                        '{"summary": "s", "coverage": []}'}}]}
+
+        @contextlib.contextmanager
+        def fake_stream(method, url, headers, **kw):
+            seen["search"] = headers["Authorization"]
+            yield Resp()
+
+        def fake_post(url, headers, **kw):
+            seen["digest"] = headers["Authorization"]
+            return Resp()
+
+        monkeypatch.setattr(gist.httpx, "stream", fake_stream)
+        monkeypatch.setattr(gist.httpx, "post", fake_post)
+        list(gist._stream_groq("system", "prompt"))
+        gist._call_groq("prompt")
+        assert seen == {"search": "Bearer search-key", "digest": "Bearer digest-key"}

@@ -168,9 +168,17 @@ search, over the last 7 days by default (`days`, 1–30). It reads the
 best-matching 2 to 12 articles, leaving out sponsored and retracted items, and
 streams the text as it is written: NDJSON, one `meta` line, then `delta` lines,
 then `done`. If there is too little coverage or no writer available, it sends a
-single `status` line instead. The same question within 15 minutes is answered
-from memory, per running instance; the serving path cannot write, so it has
-nowhere durable to cache.
+single `status` line instead. A summary is remembered for an hour, keyed on
+the articles it read rather than the words typed, so "nysc" and "nysc camp"
+share one when they match the same reports. That memory is per running
+instance; the serving path cannot write, so it has nowhere durable to cache.
+
+Because visitors trigger these, fresh ones are rationed: 5 per visitor in any
+10 minutes, 20 a day, and 300 a day across everyone (per instance). Cached
+answers don't count. Past a limit the stream sends a `busy` status line; the
+search results themselves are unaffected. Set `GROQ_SEARCH_API_KEY` to give
+these their own Groq key, so spam that uses up its free allowance cannot break
+the morning digest. Unset, they share `GROQ_API_KEY`.
 
 ## Data notes that cost real debugging time
 

@@ -16,7 +16,7 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from .config import (ANTHROPIC_API_KEY, GIST_BACKEND, GIST_MODEL, GROQ_API_KEY,
-                     GROQ_URL, OLLAMA_URL)
+                     GROQ_SEARCH_API_KEY, GROQ_URL, OLLAMA_URL)
 from .normalize import content_hash, now_iso
 
 # A gist is a few sentences plus one line per outlet — deliberately short.
@@ -283,7 +283,7 @@ def _stream_groq(system: str, prompt: str):
     with httpx.stream(
         "POST",
         f"{GROQ_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+        headers={"Authorization": f"Bearer {GROQ_SEARCH_API_KEY}"},
         json={
             "model": GIST_MODEL,
             "messages": [{"role": "system", "content": system},
@@ -351,7 +351,7 @@ def stream_writer():
         return _stream_ollama, model_tag
     if GIST_BACKEND == "groq":
         model_tag = f"groq:{GIST_MODEL}"
-        if not GROQ_API_KEY:
+        if not GROQ_SEARCH_API_KEY:
             return {"status": "not configured", "backend": GIST_BACKEND, "model": model_tag,
                     "detail": "GROQ_API_KEY is unset; gists skipped."}
         return _stream_groq, model_tag

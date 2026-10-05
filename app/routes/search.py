@@ -8,18 +8,20 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
 from .. import gist
-from ..auth import authenticate
+from ..auth import authenticate, gist_allowance
 from ..serialize import article_out
 from .common import sources_map
 
 router = APIRouter()
 
-# One topic gist is one model call, so identical queries within a quarter hour
-# are answered from memory. Per warm process only — the serving path holds a
-# read-only database role and cannot cache anywhere durable, by design.
-_CACHE_TTL = 15 * 60
+# One topic gist is one model call, so it is cached on which articles it read,
+# not on the words typed: "nysc" and "nysc camp" matching the same reports share
+# one summary. The index only moves at the morning read, so an hour is safe.
+# Per warm process only — the serving path holds a read-only database role and
+# cannot cache anywhere durable, by design.
+_CACHE_TTL = 60 * 60
 _CACHE_MAX = 100
-_gist_cache: dict[tuple[str, int], tuple[float, str, str]] = {}  # key -> (expires, text, model)
+_gist_cache: dict[str, tuple[float, str, str]] = {}  # input hash -> (expires, text, model)
 
 # Enough coverage to be worth a summary, few enough articles to stay a gist.
 MIN_TOPIC_ARTICLES = 2
@@ -86,7 +88,7 @@ def _ndjson(obj: dict) -> str:
     return json.dumps(obj, ensure_ascii=False) + "\n"
 
 
-def _gist_lines(q: str, days: int, rows: list, sources: dict):
+def _gist_lines(q: str, days: int, rows: list, sources: dict, identity: str = "local"):
     newsrooms = {r["source_id"] for r in rows}
     yield _ndjson({"type": "meta", "query": q, "days": days,
                    "articles": len(rows), "newsrooms": len(newsrooms)})
@@ -96,7 +98,7 @@ def _gist_lines(q: str, days: int, rows: list, sources: dict):
                        "message": "Not enough recent reporting on this to write a gist."})
         return
 
-    key = (q.strip().lower(), days)
+    key = gist.input_hash(rows)
     cached = _gist_cache.get(key)
     if cached and cached[0] > time.monotonic():
         yield _ndjson({"type": "delta", "text": cached[1]})
@@ -108,6 +110,11 @@ def _gist_lines(q: str, days: int, rows: list, sources: dict):
         yield _ndjson({"type": "status", "status": writer["status"], "message": writer["detail"]})
         return
     stream_fn, model_tag = writer
+
+    if not gist_allowance(identity):
+        yield _ndjson({"type": "status", "status": "busy",
+                       "message": "Summaries are paused for a bit."})
+        return
 
     prompt = gist.build_topic_prompt(q, rows, sources)
     parts: list[str] = []
@@ -139,7 +146,7 @@ async def search_gist(
     rows = _topic_rows(conn, q, days)
     srcs = sources_map(request)
     return StreamingResponse(
-        _gist_lines(q, days, rows, srcs),
+        _gist_lines(q, days, rows, srcs, auth["identity"]),
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )
