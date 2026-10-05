@@ -1,9 +1,8 @@
-"""Tier 4: public RSS feed (usually /feed/).
+"""Public RSS feed (usually /feed/).
 
-The thinnest ingestion tier: whatever the outlet chose to syndicate — headline,
-link, timestamp, a short description. Feeds exist to be read by aggregators,
-which is why this tier ships with every rights flag off in the registry:
-headline, link and attribution are served, nothing else.
+The thinnest way in: whatever the outlet chose to syndicate — headline, link,
+timestamp, a short description. A feed only holds the latest handful of items,
+so it is the fallback for outlets whose wp-json endpoint is blocked.
 """
 from __future__ import annotations
 

@@ -76,24 +76,15 @@ class TestRevisions:
         assert db.upsert_article(conn, sneaky) == "updated"
 
 
-class TestRights:
-    def test_unlicensed_source_has_dek_and_image_withheld(self, conn):
+class TestServing:
+    def test_every_source_is_served_the_same_fields(self, conn):
         db.upsert_article(conn, make_record())
         article = conn.execute("SELECT * FROM articles WHERE id='premium-times:1'").fetchone()
-        punch = conn.execute("SELECT * FROM sources WHERE id='punch'").fetchone()
-
-        out = article_out(article, punch)
-        assert out["dek"] is None and out["snippet"] is None
-        assert out["rights"]["snippet"] is False
-
-    def test_licensed_source_returns_the_granted_fields(self, conn):
-        db.upsert_article(conn, make_record())
-        article = conn.execute("SELECT * FROM articles WHERE id='premium-times:1'").fetchone()
-        pt = conn.execute("SELECT * FROM sources WHERE id='premium-times'").fetchone()
-
-        out = article_out(article, pt)
-        assert out["dek"] == "The minister stepped down on Friday."
-        assert out["rights"]["body"] is False  # never licensed at any tier
+        for sid in ("punch", "premium-times"):
+            src = conn.execute("SELECT * FROM sources WHERE id=%s", (sid,)).fetchone()
+            out = article_out(article, src)
+            assert out["dek"] == "The minister stepped down on Friday."
+            assert "rights" not in out and "tier" not in out["source"]
 
     def test_body_is_never_stored(self, conn):
         db.upsert_article(conn, make_record())
@@ -154,7 +145,7 @@ class TestVolatileMarkup:
 
 
 class TestRSSNormalize:
-    """Feeds are the thinnest tier and the messiest: tracking junk on links,
+    """Feeds are the thinnest source and the messiest: tracking junk on links,
     boilerplate footers, invisible watermark characters in headlines."""
 
     def _entry(self, **overrides):

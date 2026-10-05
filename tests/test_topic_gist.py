@@ -54,29 +54,26 @@ class TestTopicRows:
 
 
 class TestTopicPrompt:
-    def test_rights_gate_matches_the_serving_path(self):
+    def test_prompt_carries_every_outlets_description(self):
         sources = {
-            "premium-times": {"id": "premium-times", "attribution_name": "Premium Times",
-                              "rights_dek": 1, "rights_snippet": 1},
-            "punch": {"id": "punch", "attribution_name": "Punch",
-                      "rights_dek": 0, "rights_snippet": 0},
+            "premium-times": {"id": "premium-times", "attribution_name": "Premium Times"},
+            "punch": {"id": "punch", "attribution_name": "Punch"},
         }
         articles = [
-            make_record(dek="A licensed description."),
+            make_record(dek="Premium Times' description."),
             make_record(id="punch:2", source_id="punch",
                         headline="Osun tribunal ruling expected",
-                        dek="An unlicensed description."),
+                        dek="Punch's description."),
         ]
         prompt = gist.build_topic_prompt("osun state elections", articles, sources)
         assert prompt.startswith("Recent coverage of: osun state elections")
-        assert "A licensed description." in prompt
+        assert "Premium Times' description." in prompt
         assert "Osun tribunal ruling expected" in prompt
-        assert "unlicensed" not in prompt
+        assert "Punch's description." in prompt
 
 
 class TestStreamEvents:
-    _sources = {"premium-times": {"id": "premium-times", "attribution_name": "PT",
-                                  "rights_dek": 1, "rights_snippet": 1}}
+    _sources = {"premium-times": {"id": "premium-times", "attribution_name": "PT"}}
 
     def _rows(self, n):
         return [make_record(id=f"premium-times:{i}", source_article_id=str(i),

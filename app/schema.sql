@@ -17,21 +17,23 @@ CREATE TABLE IF NOT EXISTS sources (
   id                TEXT PRIMARY KEY,          -- slug, e.g. 'premium-times'
   name              TEXT NOT NULL,
   homepage          TEXT NOT NULL,
-  tier              INTEGER NOT NULL,          -- 1 installed API, 2 wp-json, 3 gated, 4 rss
   adapter           TEXT NOT NULL,             -- wordpress | content_api | rss
   endpoint          TEXT NOT NULL,
   enabled           INTEGER NOT NULL DEFAULT 0,
-  -- Licensing. Nothing is served to clients that the rights columns do not allow.
-  license_status    TEXT NOT NULL DEFAULT 'none',   -- signed | verbal | pending | none
-  rights_dek        INTEGER NOT NULL DEFAULT 0,
-  rights_snippet    INTEGER NOT NULL DEFAULT 0,
-  rights_image      INTEGER NOT NULL DEFAULT 0,
   attribution_name  TEXT,
   timezone          TEXT NOT NULL DEFAULT 'Africa/Lagos',
   added_at          TEXT NOT NULL,
   last_ingest_at    TEXT,
   last_error        TEXT
 );
+
+-- Columns from the licensing model, dropped from databases created before it
+-- was removed. No-ops on a fresh database.
+ALTER TABLE sources DROP COLUMN IF EXISTS tier;
+ALTER TABLE sources DROP COLUMN IF EXISTS license_status;
+ALTER TABLE sources DROP COLUMN IF EXISTS rights_dek;
+ALTER TABLE sources DROP COLUMN IF EXISTS rights_snippet;
+ALTER TABLE sources DROP COLUMN IF EXISTS rights_image;
 
 CREATE TABLE IF NOT EXISTS articles (
   id                    TEXT PRIMARY KEY,      -- '{source_id}:{source_article_id}'
@@ -113,7 +115,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
 );
 
 -- One generated gist per story cluster: a neutral summary plus a per-outlet
--- note, written by a model from licensed metadata only (never bodies), and
+-- note, written by a model from published metadata only (never bodies), and
 -- regenerated when input_hash says the underlying coverage moved.
 CREATE TABLE IF NOT EXISTS cluster_gists (
   cluster_id    TEXT PRIMARY KEY REFERENCES clusters(id),

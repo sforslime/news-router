@@ -14,7 +14,7 @@ async def list_sources(request: Request, enabled_only: bool = False, auth: dict 
     sql = "SELECT * FROM sources"
     if enabled_only:
         sql += " WHERE enabled = 1"
-    sql += " ORDER BY tier, id"
+    sql += " ORDER BY name"
     rows = conn.execute(sql).fetchall()
     return {"count": len(rows), "sources": [source_out(r) for r in rows]}
 

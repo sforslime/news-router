@@ -1,8 +1,8 @@
 """Write the gist of each story cluster with Claude.
 
-The model reads only what the API itself is allowed to serve: headline and
-attribution always, dek and snippet only where that outlet's rights flags say
-so. Bodies are never stored, so they can never leak in here. Each gist records
+The model reads only what the API itself serves: headline and attribution,
+plus dek and snippet where the outlet provides them. Bodies are never stored,
+so they can never leak in here. Each gist records
 a hash of its inputs; a cluster whose coverage has not moved costs nothing on
 the next run.
 """
@@ -36,7 +36,7 @@ class Gist(BaseModel):
 SYSTEM = """You write the gist of a news story for a Nigerian news aggregator.
 
 You are given what several newsrooms published about one story: each outlet's
-headline and, where the outlet has licensed it, a short description. Write only
+headline and, where the outlet provides one, a short description. Write only
 from that material. Never add facts, names, figures or background that are not
 in it, and never guess at what an outlet meant.
 
@@ -56,7 +56,7 @@ TOPIC_SYSTEM = """You write the gist of recent news coverage on one topic, for a
 Nigerian news aggregator.
 
 You are given what several newsrooms published about the topic in the last few
-days: each outlet's headline and, where the outlet has licensed it, a short
+days: each outlet's headline and, where the outlet provides one, a short
 description. The items may span several distinct stories about the topic. Write
 only from that material. Never add facts, names, figures or background that are
 not in it, and never guess at what an outlet meant.
@@ -77,15 +77,15 @@ def input_hash(articles: list[Any]) -> str:
 
 
 def _article_block(a: Any, src: Any) -> list[str]:
-    """One article as prompt lines, gated exactly like the serving path."""
+    """One article as prompt lines: the same fields the API serves."""
     lines = [
         f"outlet: {src['attribution_name']} (source_id: {src['id']})",
         f"published: {a['published_at']}",
         f"headline: {a['headline']}",
     ]
-    if src["rights_dek"] and a["dek"]:
+    if a["dek"]:
         lines.append(f"description: {a['dek']}")
-    if src["rights_snippet"] and a["snippet"] and a["snippet"] != a["dek"]:
+    if a["snippet"] and a["snippet"] != a["dek"]:
         lines.append(f"snippet: {a['snippet']}")
     if a["wire_source"]:
         lines.append(f"wire agency: {a['wire_source']}")

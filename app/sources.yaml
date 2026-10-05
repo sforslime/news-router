@@ -1,158 +1,104 @@
 # Source registry for the news router.
 #
-# `enabled: false` means the router knows about the outlet but will not ingest it.
-# Nothing gets ingested before there is permission — an open /wp-json endpoint is
-# not permission. The tier 4 RSS lane is the one exception by design: a public
-# feed is published specifically to be read by aggregators, so RSS sources run
-# with every rights flag off — headline, link and attribution, nothing more.
-# Moving an RSS outlet up a tier still requires an agreement.
+# Every outlet is read from what it already publishes openly: its WordPress
+# REST endpoint (/wp-json/wp/v2) where that is reachable, its RSS feed where it
+# is not. wp-json is preferred because it can be paged back through a whole
+# day; a feed only holds the latest handful of items.
 #
-# WordPress probe results recorded 2026-08-21; feed probes 2026-08-27.
+# `enabled: false` means the router knows about the outlet but cannot read it.
 #
-# Where each agreement stands is deliberately not recorded here. It lives in
-# sources.local.yaml, which is git-ignored; see sources.local.example.yaml.
+# WordPress probes 2026-08-21 and 2026-10-05; feed probes 2026-08-27.
 
 sources:
   - id: premium-times
     name: Premium Times
     homepage: https://www.premiumtimesng.com
-    tier: 2
     adapter: wordpress
     endpoint: https://www.premiumtimesng.com/wp-json/wp/v2
     enabled: true
-    rights_dek: true
-    rights_snippet: true
-    rights_image: true
     attribution_name: Premium Times
     timezone: Africa/Lagos
 
   - id: icir
     name: The ICIR
     homepage: https://www.icirnigeria.org
-    tier: 2
     adapter: wordpress
     endpoint: https://www.icirnigeria.org/wp-json/wp/v2
     enabled: true
-    rights_dek: true
-    rights_snippet: true
-    rights_image: true
     attribution_name: The International Centre for Investigative Reporting
 
   - id: ripples
     name: Ripples Nigeria
     homepage: https://ripplesnigeria.com
-    tier: 2
     adapter: wordpress
     endpoint: https://ripplesnigeria.com/wp-json/wp/v2
     enabled: true
-    rights_dek: true
-    rights_snippet: true
-    rights_image: true
     attribution_name: Ripples Nigeria
     timezone: Africa/Lagos
 
-  # wp-json open (https://punchng.com/wp-json/wp/v2) but un-agreed; reading the
-  # feed instead until there is an agreement.
   - id: punch
     name: Punch
     homepage: https://punchng.com
-    tier: 4
-    adapter: rss
-    endpoint: https://punchng.com/feed/
+    adapter: wordpress
+    endpoint: https://punchng.com/wp-json/wp/v2
     enabled: true
-    rights_dek: false
-    rights_snippet: false
-    rights_image: false
     attribution_name: Punch
 
-  # wp-json open (https://leadership.ng/wp-json/wp/v2) but un-agreed.
   - id: leadership
     name: Leadership
     homepage: https://leadership.ng
-    tier: 4
-    adapter: rss
-    endpoint: https://leadership.ng/feed/
+    adapter: wordpress
+    endpoint: https://leadership.ng/wp-json/wp/v2
     enabled: true
-    rights_dek: false
-    rights_snippet: false
-    rights_image: false
     attribution_name: Leadership
 
-  # wp-json open (https://gazettengr.com/wp-json/wp/v2) but un-agreed.
   - id: peoples-gazette
     name: Peoples Gazette
     homepage: https://gazettengr.com
-    tier: 4
-    adapter: rss
-    endpoint: https://gazettengr.com/feed/
+    adapter: wordpress
+    endpoint: https://gazettengr.com/wp-json/wp/v2
     enabled: true
-    rights_dek: false
-    rights_snippet: false
-    rights_image: false
     attribution_name: Peoples Gazette
 
-  # wp-json open (https://dailytrust.com/wp-json/wp/v2) but un-agreed.
   - id: daily-trust
     name: Daily Trust
     homepage: https://dailytrust.com
-    tier: 4
-    adapter: rss
-    endpoint: https://dailytrust.com/feed/
+    adapter: wordpress
+    endpoint: https://dailytrust.com/wp-json/wp/v2
     enabled: true
-    rights_dek: false
-    rights_snippet: false
-    rights_image: false
     attribution_name: Daily Trust
 
-  # wp-json open (https://nairametrics.com/wp-json/wp/v2) but un-agreed.
   - id: nairametrics
     name: Nairametrics
     homepage: https://nairametrics.com
-    tier: 4
-    adapter: rss
-    endpoint: https://nairametrics.com/feed/
+    adapter: wordpress
+    endpoint: https://nairametrics.com/wp-json/wp/v2
     enabled: true
-    rights_dek: false
-    rights_snippet: false
-    rights_image: false
     attribution_name: Nairametrics
 
-  # wp-json open (https://tribuneonlineng.com/wp-json/wp/v2) but un-agreed.
   - id: tribune
     name: Nigerian Tribune
     homepage: https://tribuneonlineng.com
-    tier: 4
-    adapter: rss
-    endpoint: https://tribuneonlineng.com/feed/
+    adapter: wordpress
+    endpoint: https://tribuneonlineng.com/wp-json/wp/v2
     enabled: true
-    rights_dek: false
-    rights_snippet: false
-    rights_image: false
     attribution_name: Nigerian Tribune
 
-  # wp-json Cloudflare-blocked (403), but the feed is open.
+  # wp-json Cloudflare-blocked (403); read from the feed.
   - id: vanguard
     name: Vanguard
     homepage: https://www.vanguardngr.com
-    tier: 4
     adapter: rss
     endpoint: https://www.vanguardngr.com/feed/
     enabled: true
-    rights_dek: false
-    rights_snippet: false
-    rights_image: false
     attribution_name: Vanguard
 
   # Cloudflare-blocked on both probes: wp-json 403 (2026-08-21) and /feed/ 403
-  # (2026-08-27). Will need an agreed allowlist or a tier-1 install.
+  # (2026-08-27). Off until one of them opens.
   - id: thecable
     name: TheCable
     homepage: https://www.thecable.ng
-    tier: 3
     adapter: wordpress
     endpoint: https://www.thecable.ng/wp-json/wp/v2
     enabled: false
-    rights_dek: false
-    rights_snippet: false
-    rights_image: false
     attribution_name: TheCable

@@ -245,7 +245,7 @@ def normalize_wordpress(post: dict[str, Any], source_id: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# RSS (tier 4). Feeds are fetched and parsed by the adapter with feedparser;
+# RSS. Feeds are fetched and parsed by the adapter with feedparser;
 # what arrives here is a feedparser entry, not raw XML.
 
 # Tracking query parameters. Feeds decorate their permalinks with these, and a
@@ -296,7 +296,7 @@ def normalize_rss(entry: Any, source_id: str) -> dict[str, Any]:
 
     RSS carries less than wp-json — no body, no real taxonomy, at best an
     enclosure for an image — so several fields are honest approximations of
-    what the richer tiers provide.
+    what wp-json provides.
     """
     headline = strip_html(entry.get("title"))
     link = clean_feed_url(entry.get("link"))

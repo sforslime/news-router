@@ -4,17 +4,16 @@ Built by SAYOL labs.
 
 **Live:** https://news-router.vercel.app · [API docs](https://news-router.vercel.app/docs)
 
-One read API across Nigerian newsrooms. Every ingestion tier normalises into a
-single schema, so a consumer never learns whether a story arrived from an
-installed content API, an open WordPress endpoint, or RSS. Ten outlets are
-indexed today, and the same story is grouped across them. Each grouped story
+One read API across Nigerian newsrooms. It reads what each newsroom already
+publishes openly — its WordPress REST endpoint, or its RSS feed where that is
+blocked — and normalises both into a single schema, so a consumer never learns
+which a story arrived through. Ten outlets are indexed today, and the same story is grouped across them. Each grouped story
 gets a short gist — what happened, then a line on what each outlet's coverage
 adds — written only from what the outlets published.
 
 **Metadata only.** Headline, dek, byline, timestamps, canonical URL, section,
 snippet and thumbnail. Article bodies are read transiently during ingestion — to
-hash for change detection and to spot wire copy — and are never stored or served,
-at any tier.
+hash for change detection and to spot wire copy — and are never stored or served.
 
 ## Run it
 
@@ -23,7 +22,7 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements-dev.txt
 
 export DATABASE_URL='postgresql://…'          # see Storage below
 ./.venv/bin/python -m app.setup               # create tables, load sources.yaml
-./.venv/bin/python -m app.ingest --limit 60        # every enabled newsroom
+./.venv/bin/python -m app.ingest --limit 200       # every enabled newsroom
 ./.venv/bin/python -m app.digest                  # cluster, then write the gists
 ./.venv/bin/python -m uvicorn app.main:app --port 8099
 ```
@@ -49,11 +48,11 @@ app/
   normalize.py      timestamps, doubled excerpts, HTML stripping, wire detection
   cluster.py        group the same story across outlets
   gist.py           write a story's gist; Groq by default, Claude or a local Ollama as alternatives
-  serialize.py      rights enforcement, applied record by record
+  serialize.py      stored rows to API responses
   auth.py           API keys and the per-instance rate limiter
   config.py         settings from the environment, including the gist-writer switch
   db.py schema.sql  Postgres, hosted on Neon
-  sources.yaml      the roster — endpoints, tiers, rights flags
+  sources.yaml      the roster — names, endpoints, which are switched on
   static/index.html the front page, one file, no build step
   ingest.py digest.py setup.py keys.py    the CLIs
   migrate_from_sqlite.py                  one-off move from the old SQLite file
@@ -65,8 +64,7 @@ tests/
 
 `/` serves a single static page from `app/static/index.html` — no build step, no
 second deployment. It is a working demonstration rather than a product surface:
-live search across every indexed newsroom, the roster with each newsroom's
-agreement shown, and a developer view whose endpoints run against the live index
+live search across every indexed newsroom, the roster of newsrooms read today, and a developer view whose endpoints run against the live index
 and print the real response with timing and payload size.
 
 On arrival the page shows the gist the morning digest already wrote for the
@@ -90,7 +88,7 @@ OpenAPI docs remain at `/docs`.
 | `GET /` | Front page — live search demo and developer view |
 | `GET /v1` | Endpoint index, with the caller's plan and remaining rate limit |
 | `GET /v1/health` | Liveness, corpus size, failing sources, the gist writer's last outcome |
-| `GET /v1/sources` | Newsrooms indexed, with tier and licensing state |
+| `GET /v1/sources` | Newsrooms indexed, how each is read and when it was last read |
 | `GET /v1/sources/{id}` | One newsroom, with its article count and date range |
 | `GET /v1/articles` | Unified feed; filter by source, section, language, wire, date |
 | `GET /v1/articles/{id}` | One article |
@@ -108,51 +106,33 @@ gets 120 requests a minute (`ROUTER_DEFAULT_RATE`). Anonymous reads are allowed
 by default at 30 a minute (`ROUTER_ANON_RATE`); set `ROUTER_ALLOW_ANON=0` in
 production. `/v1/health` needs no key.
 
-## Licensing is enforced per record, not per request
+## Where the articles come from
 
-A single response mixes sources on different agreements, so rights are applied to
-each record as it is serialised. Fields outside a source's grant come back as
-`null` with an explicit `rights` block, so a consumer can tell *"withheld"* from
-*"the publisher never supplied it"*:
+Everything is read from what the newsrooms publish openly for anyone to read.
+Every record carries the outlet's name and links back to its own page.
+`app/sources.yaml` is the roster; `enabled: false` means the router knows an
+outlet but cannot currently read it.
 
-```json
-"rights": { "dek": true, "snippet": true, "image": true, "body": false }
-```
+| Mechanism | Adapter | Outlets |
+|---|---|---|
+| Open WordPress REST (`/wp-json/wp/v2`) | `wordpress` | Premium Times, The ICIR, Ripples Nigeria, Punch, Leadership, Peoples Gazette, Daily Trust, Nairametrics, Nigerian Tribune |
+| RSS feed | `rss` | Vanguard |
+| — | — | TheCable, off: both blocked |
 
-`app/sources.yaml` is the source of truth for endpoints and rights. `enabled:
-false` means the router knows about an outlet but will not ingest it — **an open
-`/wp-json` endpoint is not permission.** Ten outlets are enabled today: three
-on WordPress REST with licensed dek, snippet and image — Premium Times, The
-ICIR and Ripples Nigeria — and seven on RSS.
+WordPress REST is preferred wherever it answers, because it can be paged back
+through a whole day. A feed only holds the latest 10–30 items — Punch's covers
+about two hours — so once-a-day reads of feeds miss most of the news. Vanguard
+is on its feed only because its wp-json returns 403 (Cloudflare). TheCable
+blocks both (probed 2026-08-21 and 2026-08-27).
 
-The RSS lane is the deliberate exception to needing an agreement first: a
-public feed is published to be read by aggregators, so those sources run with
-every rights flag off — headline, link and attribution, nothing more. Moving an
-RSS outlet up a tier still requires one.
+The scheduled read takes up to 200 reports per outlet, resuming two hours before
+that outlet's last clean read, so a normal day takes about a minute and a half.
+Busy outlets publish a lot: on 2026-10-04 Leadership posted 184 reports, Punch
+167 and Tribune 113.
 
-Where each agreement actually stands is deliberately kept out of this repo and
-out of the API. It lives in `app/sources.local.yaml`, which is git-ignored;
-copy `app/sources.local.example.yaml` to start one. Absent that file every
-source reads as `none`, which is the safe default — it grants nothing. The
-`rights_*` flags in `sources.yaml` are what decide what the API will serve.
-
-> Ripples Nigeria was switched on by request rather than from a signed
-> agreement. Confirm it before relying on the index.
-
-## Ingestion tiers
-
-| Tier | Mechanism | Adapter | Status |
-|---|---|---|---|
-| 1 | Installed content API — canonical IDs, webhooks | `content_api` | not built |
-| 2 | Open WordPress REST | `wordpress` | **working** — 3 outlets live |
-| 3 | Gated outlets, metadata only | — | not built — TheCable is listed here, disabled |
-| 4 | RSS, headline and link only | `rss` | **working** — 7 outlets live |
-
-Probe of 11 Nigerian outlets (2026-08-21): 9 serve `/wp-json/wp/v2/posts`.
-Vanguard and TheCable return 403 there — Cloudflare or REST disabled. Vanguard's
-feed is open, so it runs on RSS. TheCable blocks its feed too (probed
-2026-08-27) and will need a tier-1 install or an agreed allowlist rather than
-open polling.
+`python -m app.remap_punch` is a one-off, to be run once after the first
+WordPress read of Punch. Punch's RSS rows were keyed on a hash of the URL rather
+than the post id, so it folds each old row into its new twin by URL.
 
 ## Stories and gists
 
@@ -175,8 +155,8 @@ yet, so earlier groupings never get reshuffled.
 **Writing the gist.** Once a story has at least two articles, the gist writer
 produces a short neutral summary plus one note per outlet, returned in a fixed
 shape and checked before anything is stored. The model sees only what the API
-itself may serve: headline and outlet name always, and a dek or snippet only
-where that outlet has licensed it. Each gist records a fingerprint of its
+itself serves: headline and outlet name, plus a dek or snippet where the outlet
+provides one. Each gist records a fingerprint of its
 inputs, so a story whose coverage hasn't changed costs nothing on the next run.
 Switching to a different model rewrites it. A run writes at most 25 gists,
 newest stories first, and leaves the rest for the next run. How the last run
@@ -303,11 +283,11 @@ TEST_DATABASE_URL='postgresql://…' ./.venv/bin/python -m pytest tests/ -q
 
 Covers timezone normalisation, excerpt de-duplication, wire detection, volatile
 ad markup, RSS parsing, revision tracking (including that `first_seen_at`
-survives a publisher edit) and rights enforcement. On the story side, it covers
+survives a publisher edit) and that every outlet is served the same fields. On the story side, it covers
 the matching rule (filler words and filler tags carry no weight), that a re-run
 reshuffles nothing, that sponsored copy and a single outlet never form a
 story, and the cluster listing's `sort` and `hours`. For gists, it covers that
-the prompt carries only licensed fields, that the input fingerprint moves with
+the prompt carries every outlet's description, that the input fingerprint moves with
 membership and edits, and each writer (Claude, Groq, Ollama) against a fake
 model with no network. It also checks how an offline or unconfigured writer is
 reported, and the topic gist's article selection and stream lines.
@@ -319,7 +299,6 @@ scratch database: it is a copy-on-write clone, so it costs nothing to throw away
 
 ## Not built yet
 
-- **Tier 1 and tier 3 adapters.**
 - Clustering recall. Matching runs on headline words, publisher entity tags and
   wire markers, because bodies are never stored. That favours precision: two
   outlets writing the same event under very different headlines will sometimes

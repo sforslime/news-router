@@ -159,23 +159,21 @@ class _FakeAnthropic:
 
 
 class TestGist:
-    def test_prompt_respects_each_outlets_rights(self):
+    def test_prompt_carries_every_outlets_description(self):
         sources = {
-            "premium-times": {"id": "premium-times", "attribution_name": "Premium Times",
-                              "rights_dek": 1, "rights_snippet": 1},
-            "punch": {"id": "punch", "attribution_name": "Punch",
-                      "rights_dek": 0, "rights_snippet": 0},
+            "premium-times": {"id": "premium-times", "attribution_name": "Premium Times"},
+            "punch": {"id": "punch", "attribution_name": "Punch"},
         }
         articles = [
-            make_record(dek="A licensed description.", snippet="A licensed snippet too."),
+            make_record(dek="Premium Times' description.", snippet="Premium Times' snippet too."),
             make_record(id="punch:2", source_id="punch",
                         headline="Minister quits amid contract row",
-                        dek="An unlicensed description.", snippet="An unlicensed snippet."),
+                        dek="Punch's description.", snippet="Punch's snippet."),
         ]
         prompt = gist.build_prompt({"label": "Minister resigns"}, articles, sources)
-        assert "A licensed description." in prompt
-        assert "Minister quits amid contract row" in prompt  # headline always allowed
-        assert "unlicensed" not in prompt                    # dek and snippet withheld
+        assert "Premium Times' description." in prompt
+        assert "Minister quits amid contract row" in prompt
+        assert "Punch's description." in prompt and "Punch's snippet." in prompt
 
     def test_input_hash_tracks_membership_and_content(self):
         a, b = make_record(), make_record(id="punch:2", source_id="punch")

@@ -1,4 +1,4 @@
-"""Tier 2: open WordPress REST (/wp-json/wp/v2/posts).
+"""Open WordPress REST (/wp-json/wp/v2/posts).
 
 Consumed only for sources whose registry entry is enabled. `_embed=1` pulls
 author, featured image and taxonomy terms in the same round trip.
@@ -47,7 +47,12 @@ class WordPressAdapter:
                     params["modified_after"] = since.replace("Z", "")
 
                 try:
-                    resp = client.get(endpoint, params=params)
+                    try:
+                        resp = client.get(endpoint, params=params)
+                    except httpx.TimeoutException:
+                        # Some outlets take 30s+ to build an uncached page, then
+                        # serve it in a second or two. One retry rides that out.
+                        resp = client.get(endpoint, params=params)
                 except httpx.HTTPError as exc:
                     raise FetchError(f"{source['id']}: request failed: {exc}") from exc
 

@@ -13,7 +13,7 @@
   ],
   "crons": [
     {
-      "path": "/v1/admin/ingest?limit=60",
+      "path": "/v1/admin/ingest?limit=200",
       "schedule": "0 5 * * *"
     },
     {

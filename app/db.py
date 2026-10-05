@@ -12,7 +12,6 @@ from .config import (
     DATABASE_URL_DIRECT,
     DATABASE_URL_READONLY,
     SOURCES_FILE,
-    SOURCES_LOCAL_FILE,
 )
 from .normalize import now_iso
 
@@ -55,41 +54,29 @@ def init_db(conn: psycopg.Connection) -> None:
 
 
 def sync_sources(conn: psycopg.Connection, sources_file: str | None = None) -> int:
-    """Load sources.yaml into the sources table. The file is the source of truth
-    for licensing flags, so they are overwritten on every sync."""
+    """Load sources.yaml into the sources table. The file is the source of truth,
+    so every row is overwritten on every sync."""
     data = yaml.safe_load(Path(sources_file or SOURCES_FILE).read_text())
     rows = data.get("sources", [])
-    licences = _local_licences()
     for s in rows:
         conn.execute(
             """
-            INSERT INTO sources (id, name, homepage, tier, adapter, endpoint, enabled,
-                                 license_status, rights_dek, rights_snippet, rights_image,
+            INSERT INTO sources (id, name, homepage, adapter, endpoint, enabled,
                                  attribution_name, timezone, added_at)
-            VALUES (%(id)s,%(name)s,%(homepage)s,%(tier)s,%(adapter)s,%(endpoint)s,%(enabled)s,
-                    %(license_status)s,%(rights_dek)s,%(rights_snippet)s,%(rights_image)s,
+            VALUES (%(id)s,%(name)s,%(homepage)s,%(adapter)s,%(endpoint)s,%(enabled)s,
                     %(attribution_name)s,%(timezone)s,%(added_at)s)
             ON CONFLICT(id) DO UPDATE SET
-              name=excluded.name, homepage=excluded.homepage, tier=excluded.tier,
+              name=excluded.name, homepage=excluded.homepage,
               adapter=excluded.adapter, endpoint=excluded.endpoint, enabled=excluded.enabled,
-              license_status=excluded.license_status, rights_dek=excluded.rights_dek,
-              rights_snippet=excluded.rights_snippet, rights_image=excluded.rights_image,
               attribution_name=excluded.attribution_name, timezone=excluded.timezone
             """,
             {
                 "id": s["id"],
                 "name": s["name"],
                 "homepage": s["homepage"],
-                "tier": int(s["tier"]),
                 "adapter": s["adapter"],
                 "endpoint": s["endpoint"],
                 "enabled": int(bool(s.get("enabled", False))),
-                "license_status": licences.get(
-                    s["id"], s.get("license_status", "none")
-                ),
-                "rights_dek": int(bool(s.get("rights_dek", False))),
-                "rights_snippet": int(bool(s.get("rights_snippet", False))),
-                "rights_image": int(bool(s.get("rights_image", False))),
                 "attribution_name": s.get("attribution_name") or s["name"],
                 "timezone": s.get("timezone", "Africa/Lagos"),
                 "added_at": now_iso(),
@@ -98,23 +85,9 @@ def sync_sources(conn: psycopg.Connection, sources_file: str | None = None) -> i
     return len(rows)
 
 
-def _local_licences() -> dict[str, str]:
-    """Agreement status per source id, from the git-ignored local overlay.
-
-    sources.yaml is public and deliberately says nothing about where a
-    conversation stands. Absent the overlay every source reads as 'none',
-    which is the safe default: it grants nothing it should not.
-    """
-    path = Path(SOURCES_LOCAL_FILE)
-    if not path.exists():
-        return {}
-    data = yaml.safe_load(path.read_text()) or {}
-    return {str(k): str(v) for k, v in (data.get("license_status") or {}).items()}
-
-
 def enabled_sources(conn: psycopg.Connection) -> list[dict[str, Any]]:
     return conn.execute(
-        "SELECT * FROM sources WHERE enabled = 1 ORDER BY tier, id"
+        "SELECT * FROM sources WHERE enabled = 1 ORDER BY id"
     ).fetchall()
 
 

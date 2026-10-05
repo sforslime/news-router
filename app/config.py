@@ -28,8 +28,6 @@ TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "")
 CRON_SECRET = os.environ.get("CRON_SECRET", "")
 
 SOURCES_FILE = str(APP_DIR / "sources.yaml")
-# Git-ignored overlay carrying where each agreement actually stands.
-SOURCES_LOCAL_FILE = str(APP_DIR / "sources.local.yaml")
 
 USER_AGENT = os.environ.get(
     "ROUTER_USER_AGENT",

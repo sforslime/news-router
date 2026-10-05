@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Header, HTTPException
 
@@ -26,9 +27,22 @@ def _authorise(header: str | None) -> None:
         raise HTTPException(401, "Not authorised.")
 
 
+def _since(source) -> str | None:
+    """Where to resume reading a newsroom: its last clean read, less a margin.
+
+    Busy outlets publish 150+ reports a day, so walking back the full limit on
+    every run is slow. After a failed run, or the first one, read the full limit.
+    """
+    last = source["last_ingest_at"]
+    if not last or source["last_error"]:
+        return None
+    resume = datetime.fromisoformat(last.replace("Z", "+00:00")) - timedelta(hours=2)
+    return resume.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 @router.get("/v1/admin/ingest", include_in_schema=False)
 async def run_ingest(
-    limit: int = 60,
+    limit: int = 200,
     authorization: str | None = Header(None),
 ):
     """Fetch each enabled newsroom. Called on a schedule, not by hand.
@@ -42,7 +56,7 @@ async def run_ingest(
         db.init_db(conn)
         db.sync_sources(conn)
         results = [
-            ingest_source(conn, dict(source), limit=limit, since=None)
+            ingest_source(conn, dict(source), limit=limit, since=_since(source))
             for source in db.enabled_sources(conn)
         ]
         totals = db.counts(conn)

@@ -4,8 +4,8 @@ from typing import Any, Protocol
 
 
 class Adapter(Protocol):
-    """Every ingestion tier implements this and returns unified-schema records,
-    so the rest of the router never learns which tier a story came from."""
+    """Every ingestion method implements this and returns unified-schema records,
+    so the rest of the router never learns how a story was read."""
 
     name: str
 

@@ -28,7 +28,7 @@ async def index(auth: dict = Depends(authenticate)):
         "name": "Nigerian news router",
         "version": "0.1.0",
         "endpoints": {
-            "GET /v1/sources": "Newsrooms in the index, with tier and licensing state",
+            "GET /v1/sources": "Newsrooms in the index, how each is read and when it was last read",
             "GET /v1/articles": "Unified feed across sources; filter and paginate",
             "GET /v1/articles/{id}": "One article",
             "GET /v1/articles/{id}/revisions": "Every observed edit, including corrections",
@@ -37,5 +37,5 @@ async def index(auth: dict = Depends(authenticate)):
             "GET /v1/clusters": "Same story across outlets",
         },
         "rate_limit": {"plan": auth["plan"], "per_minute": auth["limit"], "remaining": auth["remaining"]},
-        "notes": "Metadata only. Article bodies are never stored or served, at any tier.",
+        "notes": "Metadata only. Article bodies are never stored or served.",
     }
