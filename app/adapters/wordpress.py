@@ -1,7 +1,9 @@
 """Open WordPress REST (/wp-json/wp/v2/posts).
 
 Consumed only for sources whose registry entry is enabled. `_embed=1` pulls
-author, featured image and taxonomy terms in the same round trip.
+author, featured image and taxonomy terms in the same round trip; an outlet
+whose server stalls on it is marked `embed: false` in the registry, and its
+author and image come from Yoast's metadata instead.
 """
 from __future__ import annotations
 
@@ -37,12 +39,13 @@ class WordPressAdapter:
                 params: dict[str, Any] = {
                     "per_page": page_size,
                     "page": page,
-                    "_embed": 1,
                     # Order by modified so edits and corrections resurface, not just
                     # brand-new posts. This is what feeds revision tracking.
                     "orderby": "modified",
                     "order": "desc",
                 }
+                if source.get("embed", 1):
+                    params["_embed"] = 1
                 if since:
                     params["modified_after"] = since.replace("Z", "")
 
@@ -57,7 +60,17 @@ class WordPressAdapter:
                     raise FetchError(f"{source['id']}: request failed: {exc}") from exc
 
                 if resp.status_code == 400 and page > 1:
-                    break  # WordPress returns 400 past the last page
+                    # WordPress returns 400 past the last page, but a stale page
+                    # count can make it refuse a page that exists (ThisDay's
+                    # page 2). Asking for the same rows by offset settles it.
+                    by_offset = {k: v for k, v in params.items() if k != "page"}
+                    by_offset["offset"] = (page - 1) * page_size
+                    try:
+                        resp = client.get(endpoint, params=by_offset)
+                    except httpx.HTTPError as exc:
+                        raise FetchError(f"{source['id']}: request failed: {exc}") from exc
+                    if resp.status_code == 400:
+                        break
                 if resp.status_code == 403:
                     raise FetchError(f"{source['id']}: 403 — endpoint is gated (Cloudflare or REST disabled)")
                 if resp.status_code != 200:
@@ -75,8 +88,10 @@ class WordPressAdapter:
                         seen.add(rec["id"])
                         collected.append(rec)
 
-                total_pages = int(resp.headers.get("X-WP-TotalPages") or 0)
-                if total_pages and page >= total_pages:
+                # A short page is the last one. X-WP-TotalPages is not trusted:
+                # some outlets serve it from a stale cache (ThisDay claimed one
+                # page while a second existed).
+                if len(posts) < page_size:
                     break
                 page += 1
 

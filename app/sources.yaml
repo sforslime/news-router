@@ -7,7 +7,7 @@
 #
 # `enabled: false` means the router knows about the outlet but cannot read it.
 #
-# WordPress probes 2026-08-21 and 2026-10-05; feed probes 2026-08-27.
+# WordPress probes 2026-08-21 and 2026-10-05; feed probes 2026-08-27 and 2026-10-05.
 
 sources:
   - id: premium-times
@@ -92,6 +92,128 @@ sources:
     endpoint: https://www.vanguardngr.com/feed/
     enabled: true
     attribution_name: Vanguard
+
+  - id: thisday
+    name: ThisDay
+    homepage: https://www.thisdaylive.com
+    adapter: wordpress
+    endpoint: https://www.thisdaylive.com/wp-json/wp/v2
+    enabled: true
+    attribution_name: ThisDay
+    timezone: Africa/Lagos
+
+  - id: the-sun
+    name: The Sun
+    homepage: https://sunnewsonline.com
+    adapter: wordpress
+    endpoint: https://sunnewsonline.com/wp-json/wp/v2
+    enabled: true
+    attribution_name: The Sun
+    timezone: Africa/Lagos
+
+  - id: businessday
+    name: BusinessDay
+    homepage: https://businessday.ng
+    adapter: wordpress
+    endpoint: https://businessday.ng/wp-json/wp/v2
+    enabled: true
+    attribution_name: BusinessDay
+    timezone: Africa/Lagos
+
+  - id: new-telegraph
+    name: New Telegraph
+    homepage: https://newtelegraphng.com
+    adapter: wordpress
+    endpoint: https://newtelegraphng.com/wp-json/wp/v2
+    enabled: true
+    attribution_name: New Telegraph
+    timezone: Africa/Lagos
+
+  - id: blueprint
+    name: Blueprint
+    homepage: https://blueprint.ng
+    adapter: wordpress
+    endpoint: https://blueprint.ng/wp-json/wp/v2
+    enabled: true
+    attribution_name: Blueprint
+    timezone: Africa/Lagos
+
+  - id: daily-post
+    name: Daily Post
+    homepage: https://dailypost.ng
+    adapter: wordpress
+    endpoint: https://dailypost.ng/wp-json/wp/v2
+    enabled: true
+    attribution_name: Daily Post
+    timezone: Africa/Lagos
+
+  # Its server stalls (90s+) on _embed; plain posts answer in ~14s.
+  - id: the-whistler
+    name: The Whistler
+    homepage: https://thewhistler.ng
+    adapter: wordpress
+    endpoint: https://thewhistler.ng/wp-json/wp/v2
+    enabled: true
+    embed: false
+    attribution_name: The Whistler
+    timezone: Africa/Lagos
+
+  - id: nan
+    name: News Agency of Nigeria
+    homepage: https://nannews.ng
+    adapter: wordpress
+    endpoint: https://nannews.ng/wp-json/wp/v2
+    enabled: true
+    attribution_name: News Agency of Nigeria
+    timezone: Africa/Lagos
+
+  - id: arise
+    name: Arise News
+    homepage: https://www.arise.tv
+    adapter: wordpress
+    endpoint: https://www.arise.tv/wp-json/wp/v2
+    enabled: true
+    attribution_name: Arise News
+    timezone: Africa/Lagos
+
+  - id: tvc
+    name: TVC News
+    homepage: https://www.tvcnews.tv
+    adapter: wordpress
+    endpoint: https://www.tvcnews.tv/wp-json/wp/v2
+    enabled: true
+    attribution_name: TVC News
+    timezone: Africa/Lagos
+
+  # wp-json Cloudflare-blocked (403); read from the feed.
+  - id: channels
+    name: Channels Television
+    homepage: https://www.channelstv.com
+    adapter: rss
+    endpoint: https://www.channelstv.com/feed/
+    enabled: true
+    attribution_name: Channels Television
+    timezone: Africa/Lagos
+
+  # Not WordPress; read from the feed.
+  - id: legit
+    name: Legit.ng
+    homepage: https://www.legit.ng
+    adapter: rss
+    endpoint: https://www.legit.ng/rss/all.rss
+    enabled: true
+    attribution_name: Legit.ng
+    timezone: Africa/Lagos
+
+  # Not WordPress; read from the feed.
+  - id: sahara-reporters
+    name: Sahara Reporters
+    homepage: https://saharareporters.com
+    adapter: rss
+    endpoint: https://saharareporters.com/rss.xml
+    enabled: true
+    attribution_name: Sahara Reporters
+    timezone: Africa/Lagos
 
   # Cloudflare-blocked on both probes: wp-json 403 (2026-08-21) and /feed/ 403
   # (2026-08-27). Off until one of them opens.

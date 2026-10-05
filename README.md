@@ -7,7 +7,7 @@ Built by SAYOL labs.
 One read API across Nigerian newsrooms. It reads what each newsroom already
 publishes openly — its WordPress REST endpoint, or its RSS feed where that is
 blocked — and normalises both into a single schema, so a consumer never learns
-which a story arrived through. Ten outlets are indexed today, and the same story is grouped across them. Each grouped story
+which a story arrived through. Twenty-three outlets are indexed today, and the same story is grouped across them. Each grouped story
 gets a short gist — what happened, then a line on what each outlet's coverage
 adds — written only from what the outlets published.
 
@@ -115,18 +115,27 @@ outlet but cannot currently read it.
 
 | Mechanism | Adapter | Outlets |
 |---|---|---|
-| Open WordPress REST (`/wp-json/wp/v2`) | `wordpress` | Premium Times, The ICIR, Ripples Nigeria, Punch, Leadership, Peoples Gazette, Daily Trust, Nairametrics, Nigerian Tribune |
-| RSS feed | `rss` | Vanguard |
+| Open WordPress REST (`/wp-json/wp/v2`) | `wordpress` | Premium Times, The ICIR, Ripples Nigeria, Punch, Leadership, Peoples Gazette, Daily Trust, Nairametrics, Nigerian Tribune, ThisDay, The Sun, BusinessDay, New Telegraph, Blueprint, Daily Post, The Whistler, News Agency of Nigeria, Arise News, TVC News |
+| RSS feed | `rss` | Vanguard, Channels Television, Legit.ng, Sahara Reporters |
 | — | — | TheCable, off: both blocked |
 
 WordPress REST is preferred wherever it answers, because it can be paged back
 through a whole day. A feed only holds the latest 10–30 items — Punch's covers
 about two hours — so once-a-day reads of feeds miss most of the news. Vanguard
-is on its feed only because its wp-json returns 403 (Cloudflare). TheCable
+and Channels are on their feeds only because their wp-json returns 403
+(Cloudflare); Legit.ng and Sahara Reporters are not WordPress sites. TheCable
 blocks both (probed 2026-08-21 and 2026-08-27).
 
+Two outlets need special handling. The Whistler's server stalls for 90s+ when
+asked to bundle author, image and categories (`_embed`), so it is marked
+`embed: false` and its author and image come from Yoast's metadata. ThisDay's
+server refuses page 2 with a stale page count while later pages exist, so a
+refused page is retried by offset before it is taken as the end.
+
 The scheduled read takes up to 200 reports per outlet, resuming two hours before
-that outlet's last clean read, so a normal day takes about a minute and a half.
+that outlet's last clean read. Outlets are fetched side by side (8 at a time)
+and saved one at a time, so a normal day across all 23 takes about 40 seconds
+locally, and even a read of every outlet from empty takes under a minute.
 Busy outlets publish a lot: on 2026-10-04 Leadership posted 184 reports, Punch
 167 and Tribune 113.
 

@@ -211,3 +211,74 @@ class TestRSSNormalize:
         a = n.normalize_rss(self._entry(id="https://punchng.com/story/?utm_source=a"), "punch")
         b = n.normalize_rss(self._entry(id="https://punchng.com/story/?utm_source=b"), "punch")
         assert a["source_article_id"] == b["source_article_id"]
+
+
+class TestWordPressQuirks:
+    """Outlet-specific behaviour found while adding newsrooms on 2026-10-05."""
+
+    def _post(self, pid: int, **extra) -> dict:
+        return {
+            "id": pid,
+            "title": {"rendered": f"Story {pid}"},
+            "excerpt": {"rendered": "A short description."},
+            "content": {"rendered": "<p>Body.</p>"},
+            "date_gmt": "2026-10-05T10:00:00", "date": "2026-10-05T11:00:00",
+            "modified_gmt": "2026-10-05T10:00:00",
+            "link": f"https://example.ng/story-{pid}", **extra,
+        }
+
+    def test_without_embed_author_and_image_come_from_yoast(self):
+        post = self._post(1, yoast_head_json={
+            "author": "Iro Oliver STANLEY",
+            "og_image": [{"url": "https://thewhistler.ng/img.jpg"}],
+        })
+        rec = n.normalize_wordpress(post, "the-whistler")
+        assert rec["byline"] == "Iro Oliver STANLEY"
+        assert rec["image"] == "https://thewhistler.ng/img.jpg"
+
+    def _fake_client(self, monkeypatch, respond):
+        from app.adapters import wordpress
+        calls = []
+
+        class Resp:
+            def __init__(self, code, body):
+                self.status_code, self._body, self.headers = code, body, {}
+            def json(self):
+                return self._body
+
+        class Client:
+            def __init__(self, **kw): pass
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def get(self, url, params):
+                calls.append(dict(params))
+                return Resp(*respond(params))
+
+        monkeypatch.setattr(wordpress.httpx, "Client", Client)
+        return calls
+
+    def test_a_refused_page_is_retried_by_offset(self, monkeypatch):
+        from app.adapters.wordpress import WordPressAdapter
+        full = [self._post(i) for i in range(50)]
+        second = [self._post(i) for i in range(50, 60)]
+
+        def respond(p):
+            if p.get("page") == 1:
+                return 200, full
+            if p.get("page") == 2:
+                return 400, {"code": "rest_post_invalid_page_number"}
+            if p.get("offset") == 50:
+                return 200, second
+            return 400, {}
+
+        calls = self._fake_client(monkeypatch, respond)
+        recs = WordPressAdapter().fetch({"id": "thisday", "endpoint": "https://x/wp-json/wp/v2"}, limit=200)
+        assert len(recs) == 60
+        assert calls[-1].get("offset") == 50 and "page" not in calls[-1]
+
+    def test_embed_false_leaves_out_embed(self, monkeypatch):
+        from app.adapters.wordpress import WordPressAdapter
+        calls = self._fake_client(monkeypatch, lambda p: (200, [self._post(1)]))
+        WordPressAdapter().fetch({"id": "w", "endpoint": "https://x/wp-json/wp/v2", "embed": 0}, limit=10)
+        WordPressAdapter().fetch({"id": "p", "endpoint": "https://x/wp-json/wp/v2"}, limit=10)
+        assert "_embed" not in calls[0] and calls[1]["_embed"] == 1

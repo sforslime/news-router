@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS sources (
   adapter           TEXT NOT NULL,             -- wordpress | content_api | rss
   endpoint          TEXT NOT NULL,
   enabled           INTEGER NOT NULL DEFAULT 0,
+  embed             INTEGER NOT NULL DEFAULT 1,  -- wp-json: request _embed
   attribution_name  TEXT,
   timezone          TEXT NOT NULL DEFAULT 'Africa/Lagos',
   added_at          TEXT NOT NULL,
@@ -34,6 +35,7 @@ ALTER TABLE sources DROP COLUMN IF EXISTS license_status;
 ALTER TABLE sources DROP COLUMN IF EXISTS rights_dek;
 ALTER TABLE sources DROP COLUMN IF EXISTS rights_snippet;
 ALTER TABLE sources DROP COLUMN IF EXISTS rights_image;
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS embed INTEGER NOT NULL DEFAULT 1;
 
 CREATE TABLE IF NOT EXISTS articles (
   id                    TEXT PRIMARY KEY,      -- '{source_id}:{source_article_id}'

@@ -190,7 +190,8 @@ def _wp_byline(post: dict[str, Any]) -> str | None:
     authors = (post.get("_embedded") or {}).get("author") or []
     names = [strip_html(a.get("name", "")) for a in authors if isinstance(a, dict)]
     names = [n for n in names if n]
-    return ", ".join(names) or None
+    # Without _embed, Yoast's metadata is the only place the author is named.
+    return ", ".join(names) or strip_html((post.get("yoast_head_json") or {}).get("author")) or None
 
 
 def _wp_image(post: dict[str, Any]) -> str | None:
@@ -198,7 +199,10 @@ def _wp_image(post: dict[str, Any]) -> str | None:
     for item in media:
         if isinstance(item, dict) and item.get("source_url"):
             return item["source_url"]
-    return post.get("jetpack_featured_media_url") or None
+    if post.get("jetpack_featured_media_url"):
+        return post["jetpack_featured_media_url"]
+    og = (post.get("yoast_head_json") or {}).get("og_image") or []
+    return og[0].get("url") if og and isinstance(og[0], dict) else None
 
 
 def _wp_canonical(post: dict[str, Any]) -> str:

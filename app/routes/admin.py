@@ -8,7 +8,7 @@ from fastapi import APIRouter, Header, HTTPException
 from .. import cluster, db, gist
 from ..config import CRON_SECRET
 from ..digest import _state_of
-from ..ingest import ingest_source
+from ..ingest import ingest_all
 
 router = APIRouter()
 
@@ -55,10 +55,8 @@ async def run_ingest(
     with db.connect() as conn:
         db.init_db(conn)
         db.sync_sources(conn)
-        results = [
-            ingest_source(conn, dict(source), limit=limit, since=_since(source))
-            for source in db.enabled_sources(conn)
-        ]
+        sources = [dict(s) for s in db.enabled_sources(conn)]
+        results = ingest_all(conn, sources, limit, _since)
         totals = db.counts(conn)
 
     failed = [r["source"] for r in results if r["error"]]
