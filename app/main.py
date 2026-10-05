@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
     # registry are jobs for `python -m app.setup` and for ingestion, not for a
     # cold start — doing them here would put a write in front of every request
     # after an idle period, for work that has almost always already been done.
-    conn = db.connect(readonly=True)
+    conn = db.ServingConnection()
     app.state.conn = conn
     yield
     conn.close()

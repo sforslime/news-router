@@ -49,6 +49,31 @@ def connect(url: str | None = None, *, readonly: bool = False) -> psycopg.Connec
     return psycopg.connect(url, row_factory=dict_row, autocommit=True)
 
 
+class ServingConnection:
+    """The read-only connection the API holds for its whole life, reopened when
+    it dies.
+
+    A warm instance can sit idle long enough for Neon to drop the connection
+    under it, and psycopg does not reconnect on its own — every request after
+    that failed with "the connection is closed". Serving only reads, so a read
+    that fails on a dead connection is safe to retry once on a fresh one.
+    """
+
+    def __init__(self) -> None:
+        self._conn = connect(readonly=True)
+
+    def execute(self, *args: Any, **kwargs: Any) -> psycopg.Cursor:
+        try:
+            return self._conn.execute(*args, **kwargs)
+        except psycopg.OperationalError:
+            self._conn.close()
+            self._conn = connect(readonly=True)
+            return self._conn.execute(*args, **kwargs)
+
+    def close(self) -> None:
+        self._conn.close()
+
+
 def init_db(conn: psycopg.Connection) -> None:
     conn.execute(SCHEMA_FILE.read_text())
 
