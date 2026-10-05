@@ -224,10 +224,10 @@ details.dev[open] summary::before{content:"–"}
          fixed here, so adding a newsroom changes nothing for the caller.</p>
     </div>
     <div class="card">
-      <h3>Permission is enforced per report</h3>
-      <p>A single answer mixes newsrooms on different agreements, so what each one
-         permits is applied to its own reports as they are served. Anything outside
-         a newsroom's grant comes back empty and says so.</p>
+      <h3>Read from what's already public</h3>
+      <p>Everything here comes from the feeds and site endpoints newsrooms publish
+         for anyone to read. Every report links back to the newsroom that filed it,
+         and is credited to it by name.</p>
     </div>
     <div class="card">
       <h3>Corrections travel</h3>
@@ -239,11 +239,11 @@ details.dev[open] summary::before{content:"–"}
       <h3>Only the front of the story leaves</h3>
       <p>Headline, standfirst, byline, time, section, a short extract and the
          thumbnail. The body of a report is read while indexing and then discarded.
-         It is never stored and never served, at any tier.</p>
+         It is never stored and never served.</p>
     </div>
     <div class="card">
       <h3>There is nothing new to run</h3>
-      <p>For most newsrooms this reads the feed the site already publishes. No
+      <p>It reads the feed or site each newsroom already publishes. No
          second copy of the archive, no software to install, and it cannot change
          or remove a single report.</p>
     </div>
@@ -270,7 +270,7 @@ details.dev[open] summary::before{content:"–"}
 
     <div class="ep">
       <p class="ep__sig"><span class="ep__verb">GET</span> /v1/search/gist</p>
-      <p class="ep__desc">A streamed gist of what has been published about a topic recently — one summary paragraph, then a line per newsroom, written only from licensed metadata. NDJSON; the search bar above is the live demo.</p>
+      <p class="ep__desc">A streamed gist of what has been published about a topic recently — one summary paragraph, then a line per newsroom, written only from what the newsrooms published. NDJSON; the search bar above is the live demo.</p>
       <table class="ep__params">
         <tr><td>q</td><td>required, the topic as you would search it</td></tr>
         <tr><td>days</td><td>how far back "recently" reaches; default 7, max 30</td></tr>
@@ -294,7 +294,7 @@ details.dev[open] summary::before{content:"–"}
 
     <div class="ep">
       <p class="ep__sig"><span class="ep__verb">GET</span> /v1/articles/{id}/revisions</p>
-      <p class="ep__desc">Every version of one report that the router has seen, and which fields moved between them. This is how a correction reaches a partner.</p>
+      <p class="ep__desc">Every version of one report that the router has seen, and which fields moved between them. This is how a correction reaches anyone using the API.</p>
       <table class="ep__params">
         <tr><td>id</td><td>required, e.g. premium-times:904543</td></tr>
       </table>
@@ -303,7 +303,7 @@ details.dev[open] summary::before{content:"–"}
 
     <div class="ep">
       <p class="ep__sig"><span class="ep__verb">GET</span> /v1/sources</p>
-      <p class="ep__desc">Every newsroom the router knows about, how it is read, and exactly what it has permitted.</p>
+      <p class="ep__desc">Every newsroom the router knows about, how it is read, and when it was last read.</p>
       <div class="runner"><code>/v1/sources</code><button type="button" data-run="/v1/sources">Run it →</button></div>
     </div>
 
