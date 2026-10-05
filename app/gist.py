@@ -9,6 +9,8 @@ the next run.
 from __future__ import annotations
 
 import json
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import anthropic
@@ -20,7 +22,28 @@ from .config import (ANTHROPIC_API_KEY, GIST_BACKEND, GIST_MODEL, GROQ_API_KEY,
 from .normalize import content_hash, now_iso
 
 # A gist is a few sentences plus one line per outlet — deliberately short.
-MAX_TOKENS = 2048
+# The output cap also bounds the model's own reasoning, so it stays modest:
+# Groq's free plan counts every token against a per-minute and per-day limit.
+MAX_TOKENS = 1024
+
+# Groq's free plan (openai/gpt-oss-120b): about 30 requests and 8,000 tokens a
+# minute, 200,000 tokens a day, per account. A gist is ~1.5k tokens, so calls
+# are spaced to stay under the per-minute cap, and a run stops starting new
+# calls in time to finish inside Vercel's 300s function limit.
+GROQ_CALL_GAP = 12.0
+RUN_BUDGET_S = 230.0
+SHORT_WAIT_S = 20.0           # a 429 asking for at most this is waited out once
+PROMPT_MAX_ARTICLES = 8       # past this a big story costs more and adds little
+RECENT_HOURS = 48             # only stories still moving get a gist
+
+
+class RateLimited(RuntimeError):
+    """The provider refused for volume, not for this story. Carries how long it
+    asked us to wait."""
+
+    def __init__(self, message: str, retry_after: float):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class OutletNote(BaseModel):
@@ -95,7 +118,8 @@ def _article_block(a: Any, src: Any) -> list[str]:
 
 def build_prompt(cluster: Any, articles: list[Any], sources: dict[str, Any]) -> str:
     lines = [f"Story: {cluster['label']}", ""]
-    for a in articles:
+    # Articles arrive oldest first; keep the newest, still in order.
+    for a in articles[-PROMPT_MAX_ARTICLES:]:
         lines.extend(_article_block(a, sources[a["source_id"]]))
     return "\n".join(lines).strip()
 
@@ -131,7 +155,19 @@ def _raise_with_body(resp: httpx.Response) -> None:
         message = resp.json()["error"]["message"]
     except Exception:
         message = resp.text[:200]
+    if resp.status_code == 429:
+        try:
+            wait = float(resp.headers.get("retry-after") or 60)
+        except ValueError:
+            wait = 60.0
+        raise RateLimited(f"HTTP 429: {message}", retry_after=wait)
     raise RuntimeError(f"HTTP {resp.status_code}: {message}")
+
+
+def _groq_reasoning() -> dict[str, str]:
+    """gpt-oss reasons before answering, at 'medium' by default; 'low' is plenty
+    for a summary and spends far fewer tokens. Other Groq models reject the field."""
+    return {"reasoning_effort": "low"} if "gpt-oss" in GIST_MODEL else {}
 
 
 def _call_groq(prompt: str) -> Gist:
@@ -151,6 +187,7 @@ def _call_groq(prompt: str) -> Gist:
             "response_format": {"type": "json_object"},
             "temperature": 0.2,
             "max_tokens": MAX_TOKENS,
+            **_groq_reasoning(),
         },
         timeout=60.0,
     )
@@ -177,6 +214,10 @@ def _call_ollama(prompt: str) -> Gist:
     )
     resp.raise_for_status()
     return Gist.model_validate_json(resp.json()["message"]["content"])
+
+
+_clock = time.monotonic
+_sleep = time.sleep
 
 
 def generate(conn, max_gists: int = 25) -> dict[str, Any]:
@@ -211,14 +252,24 @@ def generate(conn, max_gists: int = 25) -> dict[str, Any]:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         call = lambda prompt: _call_claude(client, prompt)
     sources = {r["id"]: r for r in conn.execute("SELECT * FROM sources").fetchall()}
+    # Stories still moving, the most widely covered first: those are the ones
+    # the front page leads with, and a run may only get through a dozen or so.
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=RECENT_HOURS)).isoformat().replace("+00:00", "Z")
     clusters = conn.execute(
-        "SELECT * FROM clusters WHERE size >= 2 ORDER BY last_published_at DESC"
+        """SELECT * FROM clusters WHERE size >= 2 AND last_published_at >= %s
+           ORDER BY size DESC, last_published_at DESC""",
+        (cutoff,),
     ).fetchall()
 
+    paced = GIST_BACKEND == "groq"
+    started = _clock()
     stats: dict[str, Any] = {"status": "ok", "backend": GIST_BACKEND, "model": model_tag,
                              "generated": 0, "unchanged": 0, "errors": []}
-    for cluster in clusters:
+    for position, cluster in enumerate(clusters):
         if stats["generated"] >= max_gists:
+            break
+        if _clock() - started > RUN_BUDGET_S:
+            stats["detail"] = f"Run time used up; {len(clusters) - position} stories left for the next run."
             break
         articles = conn.execute(
             "SELECT * FROM articles WHERE cluster_id = %s AND retracted = 0 ORDER BY published_at",
@@ -239,8 +290,25 @@ def generate(conn, max_gists: int = 25) -> dict[str, Any]:
             continue
 
         prompt = build_prompt(cluster, articles, sources)
+        if paced and stats["generated"]:
+            _sleep(GROQ_CALL_GAP)
         try:
-            gist = call(prompt)
+            try:
+                gist = call(prompt)
+            except RateLimited as exc:
+                # A short wait is asked for when only the per-minute cap is hit:
+                # wait it out once. A long one means the daily cap — stop.
+                if exc.retry_after > SHORT_WAIT_S or _clock() - started + exc.retry_after > RUN_BUDGET_S:
+                    raise
+                _sleep(exc.retry_after)
+                gist = call(prompt)
+        except RateLimited as exc:
+            # The whole account is limited, not just this story: trying the
+            # rest would only burn the daily request allowance.
+            left = len(clusters) - position
+            stats["errors"].append({"cluster": cluster["id"], "error": str(exc)})
+            stats["detail"] = f"Groq's free-plan limit reached; {left} stories left for the next run."
+            break
         except anthropic.RateLimitError:
             # The whole run is rate-limited, not just this cluster.
             stats["errors"].append({"cluster": cluster["id"], "error": "rate limited; run stopped"})
@@ -291,6 +359,7 @@ def _stream_groq(system: str, prompt: str):
             "stream": True,
             "temperature": 0.2,
             "max_tokens": MAX_TOKENS,
+            **_groq_reasoning(),
         },
         timeout=60.0,
     ) as resp:

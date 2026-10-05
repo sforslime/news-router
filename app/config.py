@@ -55,8 +55,8 @@ HTTP_TIMEOUT = float(os.environ.get("ROUTER_HTTP_TIMEOUT", "25"))
 GIST_BACKEND = os.environ.get("ROUTER_GIST_BACKEND", "groq")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-# Search summaries run on visitors' demand, so they get their own key: spam
-# that uses up its free allowance cannot starve the morning digest.
+# The key search summaries use. Groq limits per account, not per key, so this
+# only separates search from the digest when it belongs to another account.
 GROQ_SEARCH_API_KEY = os.environ.get("GROQ_SEARCH_API_KEY", "") or GROQ_API_KEY
 GROQ_URL = os.environ.get("ROUTER_GROQ_URL", "https://api.groq.com/openai/v1")
 OLLAMA_URL = os.environ.get("ROUTER_OLLAMA_URL", "http://localhost:11434")

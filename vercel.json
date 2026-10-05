@@ -17,8 +17,24 @@
       "schedule": "0 5 * * *"
     },
     {
-      "path": "/v1/admin/digest?max_gists=25",
+      "path": "/v1/admin/digest?max_gists=18&slot=1",
       "schedule": "30 5 * * *"
+    },
+    {
+      "path": "/v1/admin/digest?max_gists=18&slot=2",
+      "schedule": "30 8 * * *"
+    },
+    {
+      "path": "/v1/admin/digest?max_gists=18&slot=3",
+      "schedule": "30 11 * * *"
+    },
+    {
+      "path": "/v1/admin/digest?max_gists=18&slot=4",
+      "schedule": "30 14 * * *"
+    },
+    {
+      "path": "/v1/admin/digest?max_gists=18&slot=5",
+      "schedule": "30 17 * * *"
     }
   ]
 }

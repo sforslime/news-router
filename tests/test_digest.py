@@ -427,3 +427,95 @@ class TestClusterListing:
 
     def test_unknown_sort_is_rejected_rather_than_ignored(self, conn):
         assert self._client(conn).get("/v1/clusters?sort=nonsense").status_code == 400
+
+
+class TestGroqFreePlan:
+    """Groq's free plan refuses with 429 once a per-minute or per-day cap is hit.
+    A refusal must end the run, not be retried against every remaining story."""
+    SOURCES = ("premium-times", "punch", "vanguard", "tribune", "leadership",
+               "daily-trust", "icir", "ripples", "nairametrics", "peoples-gazette")
+
+    def _seed(self, conn, cid, size, hours_ago):
+        from app import db as db_mod
+        for i in range(size):
+            sid = self.SOURCES[i]
+            aid = f"{sid}:{cid}{i}"
+            db_mod.upsert_article(conn, make_record(
+                id=aid, source_id=sid, source_article_id=f"{cid}{i}",
+                headline=f"Story {cid} as told by {sid}", published_at=_iso(hours_ago)))
+            conn.execute("UPDATE articles SET cluster_id = %s WHERE id = %s", (cid, aid))
+        conn.execute(
+            """INSERT INTO clusters (id, label, size, first_published_at, last_published_at,
+                                     created_at, updated_at)
+               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+            (cid, f"Story {cid}", size, _iso(hours_ago), _iso(hours_ago), _iso(0), _iso(0)))
+
+    def _groq(self, monkeypatch, refuse_on=None, retry_after="60"):
+        """A fake Groq that refuses with 429 on the given call numbers."""
+        calls, sleeps = [], []
+
+        class _Resp:
+            def __init__(self, code):
+                self.status_code, self.is_closed = code, True
+                self.headers = {"retry-after": retry_after}
+                self.text = "rate limited"
+
+            def json(self):
+                if self.status_code == 429:
+                    return {"error": {"message": "Rate limit reached for tokens per minute"}}
+                body = gist.Gist(summary="ok", coverage=[]).model_dump_json()
+                return {"choices": [{"message": {"content": body}}]}
+
+        def post(url, **kwargs):
+            calls.append(kwargs["json"])
+            return _Resp(429 if len(calls) in (refuse_on or ()) else 200)
+
+        monkeypatch.setattr(gist, "GIST_BACKEND", "groq")
+        monkeypatch.setattr(gist, "GROQ_API_KEY", "test-key")
+        monkeypatch.setattr(gist.httpx, "post", post)
+        monkeypatch.setattr(gist, "_sleep", sleeps.append)
+        return calls, sleeps
+
+    def test_a_long_refusal_stops_the_run_with_one_error(self, conn, monkeypatch):
+        for n in range(6):
+            self._seed(conn, f"c{n}", 2, hours_ago=1 + n)
+        calls, _ = self._groq(monkeypatch, refuse_on={3})
+        stats = gist.generate(conn)
+        assert len(calls) == 3
+        assert stats["generated"] == 2 and len(stats["errors"]) == 1
+        assert "limit reached; 4 stories left" in stats["detail"]
+
+    def test_a_short_refusal_is_waited_out_once(self, conn, monkeypatch):
+        self._seed(conn, "c0", 2, hours_ago=1)
+        calls, sleeps = self._groq(monkeypatch, refuse_on={1}, retry_after="2")
+        stats = gist.generate(conn)
+        assert stats["generated"] == 1 and not stats["errors"]
+        assert len(calls) == 2 and sleeps == [2.0]
+
+    def test_calls_are_spaced_and_the_time_budget_holds(self, conn, monkeypatch):
+        for n in range(5):
+            self._seed(conn, f"c{n}", 2, hours_ago=1 + n)
+        _, sleeps = self._groq(monkeypatch)
+        ticks = iter([0, 0, 100, 200, 300, 400, 500])
+        monkeypatch.setattr(gist, "_clock", lambda: next(ticks))
+        stats = gist.generate(conn)
+        assert stats["generated"] == 3            # the 4th would start past 230s
+        assert sleeps == [gist.GROQ_CALL_GAP] * 2
+        assert "Run time used up" in stats["detail"]
+
+    def test_widest_stories_first_and_stale_ones_skipped(self, conn, monkeypatch):
+        self._seed(conn, "small", 2, hours_ago=1)
+        self._seed(conn, "wide", 5, hours_ago=10)
+        self._seed(conn, "stale", 4, hours_ago=60)
+        calls, _ = self._groq(monkeypatch)
+        gist.generate(conn)
+        labels = [c["messages"][1]["content"].splitlines()[0] for c in calls]
+        assert labels == ["Story: Story wide", "Story: Story small"]
+
+    def test_requests_are_kept_small(self, conn, monkeypatch):
+        self._seed(conn, "big", 10, hours_ago=1)
+        calls, _ = self._groq(monkeypatch)
+        gist.generate(conn)
+        body = calls[0]
+        assert body["max_tokens"] == 1024 and body["reasoning_effort"] == "low"
+        assert body["messages"][1]["content"].count("outlet: ") == gist.PROMPT_MAX_ARTICLES

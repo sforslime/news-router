@@ -98,7 +98,7 @@ OpenAPI docs remain at `/docs`.
 | `GET /v1/clusters` | Same story across outlets, each with its gist; filter by size and recency (`hours`), `sort=recent` or `size` |
 | `GET /v1/clusters/{id}` | One story: its gist and every outlet's version |
 | `GET /v1/admin/ingest` | Scheduled job only (needs `CRON_SECRET`): fetch every enabled newsroom |
-| `GET /v1/admin/digest` | Scheduled job only (needs `CRON_SECRET`): group stories, write up to 25 gists |
+| `GET /v1/admin/digest` | Scheduled job only (needs `CRON_SECRET`): group stories, write gists within Groq's free-plan limits |
 
 Auth is `X-API-Key` or `Authorization: Bearer`. Issue keys with
 `python -m app.keys issue "Name" --plan pro --rate 600`; a key without `--rate`
@@ -167,8 +167,18 @@ shape and checked before anything is stored. The model sees only what the API
 itself serves: headline and outlet name, plus a dek or snippet where the outlet
 provides one. Each gist records a fingerprint of its
 inputs, so a story whose coverage hasn't changed costs nothing on the next run.
-Switching to a different model rewrites it. A run writes at most 25 gists,
-newest stories first, and leaves the rest for the next run. How the last run
+Switching to a different model rewrites it.
+
+Gists are written within Groq's free plan for `openai/gpt-oss-120b`: about 30
+requests and 8,000 tokens a minute, 200,000 tokens a day, **per account**. So
+only stories updated in the last 48 hours are considered, the most widely
+covered first; each prompt carries at most 8 articles and asks for at most
+1,024 tokens with low reasoning effort (~1.5k tokens a call); calls are spaced
+12 seconds apart; and a run stops starting new calls after 230 seconds to
+finish inside Vercel's 300-second limit. A 429 asking for a short wait is
+waited out once; any other 429 ends the run with one error and a note of how
+many stories are left, instead of trying every remaining story and spending
+the day's request allowance on refusals. How the last run
 went (worked, not configured, offline, errors) is saved and shown in
 `/v1/clusters` and `/v1/health`, so a missing gist comes with a reason.
 
@@ -185,9 +195,11 @@ instance; the serving path cannot write, so it has nowhere durable to cache.
 Because visitors trigger these, fresh ones are rationed: 5 per visitor in any
 10 minutes, 20 a day, and 300 a day across everyone (per instance). Cached
 answers don't count. Past a limit the stream sends a `busy` status line; the
-search results themselves are unaffected. Set `GROQ_SEARCH_API_KEY` to give
-these their own Groq key, so spam that uses up its free allowance cannot break
-the morning digest. Unset, they share `GROQ_API_KEY`.
+search results themselves are unaffected. `GROQ_SEARCH_API_KEY` sets the key
+these use (unset, they use `GROQ_API_KEY`). Groq applies its limits per
+account, not per key, so a second key on the same account does **not** give
+search its own allowance; it only separates them when the key belongs to a
+different account or plan.
 
 ## Data notes that cost real debugging time
 
@@ -275,10 +287,12 @@ travels correctly through a pooler.
 `default_transaction_read_only = on`. Creating the schema and syncing the source
 registry belong to `python -m app.setup`; ingestion opens its own connection.
 
-**Ingestion runs on a schedule, not on your laptop.** `vercel.json` has two
+**Ingestion runs on a schedule, not on your laptop.** `vercel.json` has
 Vercel Cron jobs: `GET /v1/admin/ingest` at 05:00 UTC — 6am in Lagos — fetches
-every enabled newsroom, then `GET /v1/admin/digest` at 05:30 UTC groups the
-morning's articles into stories and writes up to 25 gists. Those two endpoints
+every enabled newsroom, then `GET /v1/admin/digest` runs at 05:30, 08:30, 11:30,
+14:30 and 17:30 UTC, grouping the articles into stories and writing as many
+gists as the free plan allows (up to 18 a run); each run picks up where the last
+one stopped. Those two endpoints
 are the only write paths in the deployed application. Both refuse anyone who
 does not present `CRON_SECRET`, which Vercel sends as a bearer token, and with
 the secret unset they refuse everyone, rather than defaulting open.
