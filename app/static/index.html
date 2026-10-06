@@ -508,7 +508,13 @@ function renderGistCard(c){
 
 // A streamed topic gist is prose: the summary, perhaps one "Also in the news:"
 // sentence, a blank line, then "Outlet: note" lines.
-function splitGist(text){
+function splitGist(text, outlets = []){
+  // The model sometimes runs two notes into one line ("… remand. Ripples
+  // Nigeria: …"); break before any known newsroom name that starts a note.
+  for (const o of outlets){
+    const name = o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    text = text.replace(new RegExp(`([.;])[ \\t]+(${name}:)`, "g"), "$1\n$2");
+  }
   const paras = text.trim().split(/\n\s*\n/);
   let summary = paras.shift() || "", also = "";
   const at = summary.indexOf("Also in the news:");
@@ -575,7 +581,7 @@ async function gistStream(q, count){
             ? `main story from ${info.main_articles} reports across ${info.main_newsrooms} newsrooms`
               + (info.related ? ` · plus ${info.related} related` : "") + ` · ${tail}`
             : `written from ${info ? info.articles : "?"} reports · ${tail}`;
-          card = {...card, ...splitGist(text), writing: false, meta};
+          card = {...card, ...splitGist(text, card.outlets || []), writing: false, meta};
           renderGistCard(card);
         }
       }
