@@ -287,6 +287,7 @@ details.dev[open] summary::before{content:"–"}
       <table class="ep__params">
         <tr><td>q</td><td>required, your search terms</td></tr>
         <tr><td>source</td><td>narrow to one or more newsrooms, comma separated</td></tr>
+        <tr><td>include_sponsored</td><td>default false</td></tr>
         <tr><td>limit</td><td>1–100, default 25</td></tr>
       </table>
       <div class="runner"><code>/v1/search?q=fake%20agency</code><button type="button" data-run="/v1/search?q=fake%20agency">Run it →</button></div>
@@ -294,7 +295,7 @@ details.dev[open] summary::before{content:"–"}
 
     <div class="ep">
       <p class="ep__sig"><span class="ep__verb">GET</span> /v1/search/gist</p>
-      <p class="ep__desc">A streamed gist of what has been published about a topic recently — one summary paragraph, then a line per newsroom, written only from what the newsrooms published. NDJSON; the search bar above is the live demo.</p>
+      <p class="ep__desc">A streamed summary of what has been published about a topic recently. Matches are grouped by story: the strongest is written up as the main story, up to four others are named in one "Also in the news" sentence, then a line per newsroom that covered the main story. Written only from what the newsrooms published. NDJSON: a <em>meta</em> line (counts, plus the main story's headline, photo and newsrooms), then <em>delta</em> lines, then <em>done</em>. Fresh summaries are limited to 5 per caller in any 10 minutes and 20 a day; repeats are served from memory and don't count. The search bar above is the live demo.</p>
       <table class="ep__params">
         <tr><td>q</td><td>required, the topic as you would search it</td></tr>
         <tr><td>days</td><td>how far back "recently" reaches; default 7, max 30</td></tr>
@@ -310,10 +311,17 @@ details.dev[open] summary::before{content:"–"}
         <tr><td>language</td><td>en, ha, yo, pcm</td></tr>
         <tr><td>wire_source</td><td>e.g. NAN — or <em>none</em> for a newsroom's own reporting</td></tr>
         <tr><td>since / until</td><td>ISO timestamp, UTC</td></tr>
+        <tr><td>retracted</td><td>true or false to show only retracted or only live reports; unset shows both</td></tr>
         <tr><td>include_sponsored</td><td>default false</td></tr>
         <tr><td>limit / cursor</td><td>1–100, default 25; cursor from the previous page</td></tr>
       </table>
       <div class="runner"><code>/v1/articles?limit=3</code><button type="button" data-run="/v1/articles?limit=3">Run it →</button></div>
+    </div>
+
+    <div class="ep">
+      <p class="ep__sig"><span class="ep__verb">GET</span> /v1/articles/{id}</p>
+      <p class="ep__desc">One report, in the same shape as the feed.</p>
+      <div class="runner"><code id="artPath">/v1/articles/…</code><button type="button" id="artRun">Run it →</button></div>
     </div>
 
     <div class="ep">
@@ -327,20 +335,47 @@ details.dev[open] summary::before{content:"–"}
 
     <div class="ep">
       <p class="ep__sig"><span class="ep__verb">GET</span> /v1/sources</p>
-      <p class="ep__desc">Every newsroom the router knows about, how it is read, and when it was last read.</p>
+      <p class="ep__desc">Every newsroom the router knows about, including any switched off, how each is read, and when it was last read.</p>
+      <table class="ep__params">
+        <tr><td>enabled_only</td><td>default false; true lists only the newsrooms being read</td></tr>
+      </table>
       <div class="runner"><code>/v1/sources</code><button type="button" data-run="/v1/sources">Run it →</button></div>
     </div>
 
     <div class="ep">
+      <p class="ep__sig"><span class="ep__verb">GET</span> /v1/sources/{id}</p>
+      <p class="ep__desc">One newsroom, with how many of its reports are indexed and the date range they span.</p>
+      <div class="runner"><code>/v1/sources/punch</code><button type="button" data-run="/v1/sources/punch">Run it →</button></div>
+    </div>
+
+    <div class="ep">
       <p class="ep__sig"><span class="ep__verb">GET</span> /v1/clusters</p>
-      <p class="ep__desc">The same story grouped across newsrooms. Fetch one cluster by id and it carries the gist: a short neutral summary of what happened, written only from what the outlets published, plus one note per newsroom on what its coverage adds.</p>
-      <div class="runner"><code>/v1/clusters</code><button type="button" data-run="/v1/clusters">Run it →</button></div>
+      <p class="ep__desc">The same story grouped across newsrooms, each with its summary where one has been written. Summaries are written five times a day, the most widely covered stories first.</p>
+      <table class="ep__params">
+        <tr><td>min_size</td><td>only stories carried by at least this many reports; default 2</td></tr>
+        <tr><td>sort</td><td><em>recent</em> (newest first, the default) or <em>size</em> (most covered first)</td></tr>
+        <tr><td>hours</td><td>only stories last reported within this many hours</td></tr>
+        <tr><td>limit</td><td>1–100, default 25</td></tr>
+      </table>
+      <div class="runner"><code>/v1/clusters?sort=size&amp;hours=24&amp;limit=5</code><button type="button" data-run="/v1/clusters?sort=size&hours=24&limit=5">Run it →</button></div>
+    </div>
+
+    <div class="ep">
+      <p class="ep__sig"><span class="ep__verb">GET</span> /v1/clusters/{id}</p>
+      <p class="ep__desc">One story: its summary, a note per newsroom on what its coverage adds, and every newsroom's report. If no summary has been written yet, it says why.</p>
+      <div class="runner"><code id="clusterPath">/v1/clusters/…</code><button type="button" id="clusterRun">Run it →</button></div>
     </div>
 
     <div class="ep">
       <p class="ep__sig"><span class="ep__verb">GET</span> /v1/health</p>
-      <p class="ep__desc">Index size and whether any newsroom is failing to read.</p>
+      <p class="ep__desc">Index size, whether any newsroom is failing to read, and how the last summary run went. Needs no key.</p>
       <div class="runner"><code>/v1/health</code><button type="button" data-run="/v1/health">Run it →</button></div>
+    </div>
+
+    <div class="ep">
+      <p class="ep__sig"><span class="ep__verb">GET</span> /v1</p>
+      <p class="ep__desc">The list of endpoints, and your current rate limit and how much of it is left.</p>
+      <div class="runner"><code>/v1</code><button type="button" data-run="/v1">Run it →</button></div>
     </div>
   </details>
 
@@ -682,6 +717,21 @@ async function runIt(btn, path){
     const path = `/v1/articles/${a.id}/revisions`;
     $("#revPath").textContent = path;
     $("#revRun").addEventListener("click", () => runIt($("#revRun"), path));
+    const one = `/v1/articles/${d.articles[0].id}`;
+    $("#artPath").textContent = one;
+    $("#artRun").addEventListener("click", () => runIt($("#artRun"), one));
+  }catch(e){}
+})();
+
+// And the single-story runner at today's most-covered story.
+(async () => {
+  try{
+    const d = await fetch("/v1/clusters?sort=size&hours=48&limit=1").then(r => r.json());
+    const c = d.clusters && d.clusters[0];
+    if(!c) return;
+    const path = `/v1/clusters/${c.id}`;
+    $("#clusterPath").textContent = path;
+    $("#clusterRun").addEventListener("click", () => runIt($("#clusterRun"), path));
   }catch(e){}
 })();
 
