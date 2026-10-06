@@ -79,12 +79,12 @@ h1{font-family:var(--display);font-weight:800;font-size:clamp(2.6rem,7vw,4.6rem)
 
 .shared{border:2px solid var(--accent);background:var(--paper-deep);padding:1rem 1.2rem;margin:0 0 1.5rem}
 /* The story card: same paper, ink border and accent as the search bar above it. */
-.gist{border:2px solid var(--ink);background:var(--paper-deep);color:var(--ink);display:grid;
-  grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:2rem;padding:1.6rem;margin:0 0 1.5rem}
+.gist{border:2px solid var(--ink);background:var(--paper-deep);color:var(--ink);display:flow-root;
+  padding:1.6rem;margin:0 0 1.5rem}
 .gist[hidden]{display:none}
-.gist--nophoto{grid-template-columns:minmax(0,1fr)}
-/* The photo keeps its own shape; the text column runs on beside and below it. */
-.gist__photo{margin:0;align-self:start}
+/* The photo keeps its own shape and floats; the text wraps beside it and then
+   carries on underneath, so a long summary never leaves a gap. */
+.gist__photo{float:left;width:48%;margin:0 2rem 1rem 0}
 .gist__photo img{display:block;width:100%;height:auto;background:var(--rule)}
 .gist__photo figcaption{font-family:var(--mono);font-size:.66rem;letter-spacing:.05em;
   color:var(--meta);margin-top:.45rem}
@@ -96,7 +96,7 @@ h1{font-family:var(--display);font-weight:800;font-size:clamp(2.6rem,7vw,4.6rem)
 .gist__text.is-writing::after{content:"▍";color:var(--accent);animation:gistblink 1s steps(1) infinite}
 @keyframes gistblink{50%{opacity:0}}
 .gist__also{margin:.7rem 0 0;color:var(--meta);font-size:.96rem}
-.gist__rule{border:0;border-top:1px solid var(--rule);margin:1.2rem 0}
+.gist__rule{border:0;border-top:1px solid var(--rule);margin:1.2rem 0;overflow:hidden}
 .gist__notes{display:grid;gap:.55rem}
 .gist__note{margin:0;color:var(--meta);font-size:.98rem;text-wrap:pretty}
 .gist__note b{font-family:var(--mono);font-weight:500;font-size:.78rem;letter-spacing:.08em;
@@ -178,7 +178,8 @@ details.dev[open] summary::before{content:"–"}
   .searchbar button{padding:0 1rem}
   .tally{min-height:3.2rem}
   h2.section{font-size:1.6rem}
-  .gist{grid-template-columns:minmax(0,1fr);gap:1rem;padding:1rem}
+  .gist{padding:1rem}
+  .gist__photo{float:none;width:auto;margin:0 0 1rem}
   .gist__head{font-size:1.55rem}
   .gist__all{width:100%}
 }
