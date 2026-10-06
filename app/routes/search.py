@@ -107,6 +107,25 @@ def _pick_story(rows: list) -> tuple[list, list]:
     return main, related
 
 
+def _describe_main(main: list, sources: dict) -> dict | None:
+    """What the page needs to dress the summary as a story card. Only fields
+    the API already serves on every article."""
+    if not main:
+        return None
+    name = lambda r: sources[r["source_id"]]["attribution_name"]
+    lead = max(main, key=_score)
+    # The lead report's own photo first, so it matches the headline; else the newest.
+    with_image = sorted((r for r in main if r.get("image")),
+                        key=lambda r: (r is lead, r["published_at"] or ""), reverse=True)
+    return {
+        "headline": lead["headline"],
+        "image": with_image[0]["image"] if with_image else None,
+        "image_source": name(with_image[0]) if with_image else None,
+        "outlets": list(dict.fromkeys(name(r) for r in main)),
+        "latest": max(r["published_at"] or "" for r in main) or None,
+    }
+
+
 def _ndjson(obj: dict) -> str:
     return json.dumps(obj, ensure_ascii=False) + "\n"
 
@@ -118,7 +137,8 @@ def _gist_lines(q: str, days: int, rows: list, sources: dict, identity: str = "l
                    "articles": len(used), "newsrooms": len({r["source_id"] for r in used}),
                    "main_articles": len(main),
                    "main_newsrooms": len({r["source_id"] for r in main}),
-                   "related": len(related)})
+                   "related": len(related),
+                   "main": _describe_main(main, sources)})
 
     if len(used) < MIN_TOPIC_ARTICLES:
         yield _ndjson({"type": "status", "status": "too little",

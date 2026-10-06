@@ -78,13 +78,39 @@ h1{font-family:var(--display);font-weight:800;font-size:clamp(2.6rem,7vw,4.6rem)
   padding:.1rem .4rem;margin-left:.4rem;letter-spacing:.05em;vertical-align:.12em}
 
 .shared{border:2px solid var(--accent);background:var(--paper-deep);padding:1rem 1.2rem;margin:0 0 1.5rem}
-.gist{border:2px solid var(--ink);background:var(--paper-deep);padding:1rem 1.2rem;margin:0 0 1.5rem}
-.gist__label{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;
-  color:var(--accent);margin:0 0 .5rem}
-.gist__text{margin:0;white-space:pre-line;font-size:1.02rem}
-.gist__text.is-writing::after{content:"▍";color:var(--accent);animation:gistblink 1s steps(1) infinite}
+/* The story card: the site's own palette, inverted. */
+.gist{--on-ink:#ede9e3;--on-ink-dim:#b4ada3;--on-ink-rule:#48423c;--accent-on-ink:#8cbca5;
+  background:var(--ink);color:var(--on-ink);display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:2rem;padding:1.6rem;margin:0 0 1.5rem}
+.gist[hidden]{display:none}
+.gist--nophoto{grid-template-columns:minmax(0,1fr)}
+.gist__photo{margin:0;display:flex;flex-direction:column;min-height:18rem}
+.gist__photo img{display:block;width:100%;flex:1 1 auto;min-height:0;height:100%;
+  object-fit:cover;background:#2a2622}
+.gist__photo figcaption{font-family:var(--mono);font-size:.66rem;letter-spacing:.05em;
+  color:var(--on-ink-dim);margin-top:.45rem}
+.gist__eyebrow{font-family:var(--mono);font-size:.74rem;text-transform:uppercase;letter-spacing:.14em;
+  color:var(--accent-on-ink);margin:0 0 .8rem}
+.gist__head{font-family:var(--display);font-weight:800;font-size:clamp(1.6rem,3.3vw,2.6rem);
+  line-height:1.03;letter-spacing:-.03em;margin:0 0 1rem;text-wrap:balance}
+.gist__text{margin:0;white-space:pre-line;font-size:1.08rem;line-height:1.55;text-wrap:pretty}
+.gist__text.is-writing::after{content:"▍";color:var(--accent-on-ink);animation:gistblink 1s steps(1) infinite}
 @keyframes gistblink{50%{opacity:0}}
-.gist__meta{font-family:var(--mono);font-size:.72rem;color:var(--meta);margin:.6rem 0 0}
+.gist__also{margin:.7rem 0 0;color:var(--on-ink-dim);font-size:.96rem}
+.gist__rule{border:0;border-top:1px solid var(--on-ink-rule);margin:1.2rem 0}
+.gist__notes{display:grid;gap:.55rem}
+.gist__note{margin:0;color:var(--on-ink-dim);font-size:.98rem;text-wrap:pretty}
+.gist__note b{font-family:var(--mono);font-weight:500;font-size:.78rem;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--on-ink);margin-right:.5rem}
+.gist__chips{display:flex;flex-wrap:wrap;gap:.45rem;margin:1.2rem 0 0}
+.gist__chip{font-family:var(--mono);font-size:.74rem;color:var(--on-ink-dim);
+  border:1px solid var(--on-ink-rule);padding:.25rem .55rem}
+.gist__chip--more{border-style:dashed}
+.gist__all{margin:1.3rem 0 0;font-family:var(--display);font-weight:700;font-size:.9rem;
+  text-transform:uppercase;letter-spacing:.02em;background:var(--on-ink);color:var(--ink);
+  border:0;padding:.75rem 1.15rem;cursor:pointer}
+.gist__all:hover{background:#fff}
+.gist__meta{font-family:var(--mono);font-size:.68rem;color:var(--on-ink-dim);margin:1rem 0 0;opacity:.8}
 .gist__meta:empty{display:none}
 .shared__note{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;
   color:var(--accent);margin:0 0 .5rem}
@@ -154,6 +180,11 @@ details.dev[open] summary::before{content:"–"}
   .searchbar button{padding:0 1rem}
   .tally{min-height:3.2rem}
   h2.section{font-size:1.6rem}
+  .gist{grid-template-columns:minmax(0,1fr);gap:1rem;padding:1rem}
+  .gist__photo{min-height:0}
+  .gist__photo img{aspect-ratio:16/10;height:auto}
+  .gist__head{font-size:1.55rem}
+  .gist__all{width:100%}
 }
 </style>
 </head>
@@ -189,11 +220,7 @@ details.dev[open] summary::before{content:"–"}
       <button class="chip" type="button">Kwara</button>
     </div>
 
-    <div class="gist" id="gist" hidden>
-      <p class="gist__label" id="gistLabel">The gist</p>
-      <p class="gist__text" id="gistText"></p>
-      <p class="gist__meta" id="gistMeta"></p>
-    </div>
+    <article class="gist" id="gist" hidden></article>
 
     <p class="tally" id="tally" role="status" aria-live="polite"></p>
     <div id="shared"></div>
@@ -416,7 +443,7 @@ async function search(q){
 
   renderResults(d.articles);
 
-  if (d.count >= 3) gistStream(q);
+  if (d.count >= 3) gistStream(q, d.count);
 }
 
 // Search results and a cluster's coverage are both serialised by article_out,
@@ -446,14 +473,65 @@ function renderResults(articles){
 // The summary streams in below the search bar as it is written. A stale
 // stream (the user searched again) is dropped mid-flight.
 let gistRun = 0;
-async function gistStream(q){
-  const run = ++gistRun;
-  const box = $("#gist"), text = $("#gistText"), meta = $("#gistMeta");
-  $("#gistLabel").textContent = "The gist";
+
+// One story card for both summaries on the page. Every value is escaped; the
+// photo is the newsroom's own thumbnail, credited, and dropped if it won't load.
+const CHIPS_SHOWN = 6;
+function renderGistCard(c){
+  const box = $("#gist");
+  const outlets = c.outlets || [];
+  const chips = outlets.slice(0, CHIPS_SHOWN).map(o => `<span class="gist__chip">${esc(o)}</span>`).join("")
+    + (outlets.length > CHIPS_SHOWN ? `<span class="gist__chip gist__chip--more">+${outlets.length - CHIPS_SHOWN}</span>` : "");
+  const photo = c.image ? `
+    <figure class="gist__photo">
+      <img src="${esc(c.image)}" alt="" loading="lazy" referrerpolicy="no-referrer"
+           onerror="this.closest('.gist').classList.add('gist--nophoto');this.closest('figure').remove()">
+      ${c.imageSource ? `<figcaption>Photo: ${esc(c.imageSource)}</figcaption>` : ""}
+    </figure>` : "";
+  box.classList.toggle("gist--nophoto", !c.image);
+  box.innerHTML = photo + `
+    <div class="gist__body">
+      <p class="gist__eyebrow">${esc(c.eyebrow)}</p>
+      <h3 class="gist__head">${esc(c.headline)}</h3>
+      <p class="gist__text${c.writing ? " is-writing" : ""}" id="gistText">${esc(c.summary)}</p>
+      ${c.also ? `<p class="gist__also">${esc(c.also)}</p>` : ""}
+      ${(c.notes || []).length ? `<hr class="gist__rule"><div class="gist__notes">${
+        c.notes.map(n => `<p class="gist__note"><b>${esc(n.outlet)}</b>${esc(n.note)}</p>`).join("")}</div>` : ""}
+      ${chips ? `<div class="gist__chips">${chips}</div>` : ""}
+      ${c.reports ? `<button class="gist__all" type="button">All ${c.reports} reports →</button>` : ""}
+      <p class="gist__meta" id="gistMeta">${esc(c.meta || "")}</p>
+    </div>`;
+  const all = box.querySelector(".gist__all");
+  if (all) all.addEventListener("click", () => $("#results").scrollIntoView({behavior: "smooth", block: "start"}));
   box.hidden = false;
-  text.textContent = "";
-  text.classList.add("is-writing");
-  meta.textContent = "";
+}
+
+// A streamed topic gist is prose: the summary, perhaps one "Also in the news:"
+// sentence, a blank line, then "Outlet: note" lines.
+function splitGist(text){
+  const paras = text.trim().split(/\n\s*\n/);
+  let summary = paras.shift() || "", also = "";
+  const at = summary.indexOf("Also in the news:");
+  if (at >= 0){ also = summary.slice(at).trim(); summary = summary.slice(0, at).trim(); }
+  const notes = [];
+  for (const line of paras.join("\n").split("\n").map(l => l.trim()).filter(Boolean)){
+    if (!also && line.startsWith("Also in the news:")){ also = line; continue; }
+    const m = line.match(/^([^:]{2,48}):\s*(.+)$/);
+    if (m) notes.push({outlet: m[1].trim(), note: m[2].trim()});
+    else summary += "\n" + line;
+  }
+  return {summary, also, notes};
+}
+
+async function gistStream(q, count){
+  const run = ++gistRun;
+  let card = {eyebrow: "Main story", headline: q, summary: "", writing: true, reports: count};
+  renderGistCard(card);
+  let text = "";
+
+  const fail = (message) => {
+    renderGistCard({...card, writing: false, summary: message, also: "", notes: [], meta: ""});
+  };
 
   try{
     const r = await fetch("/v1/search/gist?q=" + encodeURIComponent(q));
@@ -471,31 +549,42 @@ async function gistStream(q){
       for (const line of lines){
         if (!line.trim()) continue;
         const ev = JSON.parse(line);
-        if (ev.type === "meta") info = ev;
-        else if (ev.type === "delta") text.textContent += ev.text;
+        if (ev.type === "meta"){
+          info = ev;
+          const m = ev.main;
+          if (m){
+            card = {...card,
+              eyebrow: `Main story · ${ev.main_newsrooms} newsroom${ev.main_newsrooms === 1 ? "" : "s"}`
+                + (m.latest ? ` · ${when(m.latest)}` : ""),
+              headline: m.headline, image: m.image, imageSource: m.image_source, outlets: m.outlets};
+          }
+          renderGistCard(card);
+        }
+        else if (ev.type === "delta"){
+          text += ev.text;
+          $("#gistText").textContent = text;
+        }
         else if (ev.type === "status"){
-          text.classList.remove("is-writing");
-          if (ev.status === "too little"){ box.hidden = true; return; }
-          text.textContent = ev.message + " The headlines below still work.";
+          if (ev.status === "too little"){ $("#gist").hidden = true; return; }
+          fail(ev.message + " The headlines below still work.");
           return;
         }
         else if (ev.type === "done"){
-          text.classList.remove("is-writing");
           const tail = `${ev.model}${ev.cached ? " · cached" : ""}`;
-          meta.textContent = info.main_articles != null
+          const meta = info && info.main_articles != null
             ? `main story from ${info.main_articles} reports across ${info.main_newsrooms} newsrooms`
               + (info.related ? ` · plus ${info.related} related` : "") + ` · ${tail}`
-            : `written from ${info.articles} reports across ${info.newsrooms} newsrooms · ${tail}`;
+            : `written from ${info ? info.articles : "?"} reports · ${tail}`;
+          card = {...card, ...splitGist(text), writing: false, meta};
+          renderGistCard(card);
         }
       }
       if (done) break;
     }
   }catch(err){
     if (run !== gistRun) return;
-    text.classList.remove("is-writing");
-    text.textContent = "The gist could not be written just now — the headlines below still work.";
+    fail("The gist could not be written just now — the headlines below still work.");
   }
-  text.classList.remove("is-writing");
 }
 
 // What a visitor sees on arrival is the gist the 05:30 digest already wrote for
@@ -512,28 +601,30 @@ async function showTodayGist(){
   if (!c.gist) return false;
 
   const coverage = c.coverage || [];
-  const outlets = new Set(coverage.map(a => a.source.name));
-  const notes = (c.gist.notes || []).filter(n => n.note);
-  const body = c.gist.summary
-    + (notes.length ? "\n\n" + notes.map(n => `${n.outlet}: ${n.note}`).join("\n") : "");
-
-  $("#gistLabel").textContent = "The gist — today";
-  $("#gistText").classList.remove("is-writing");
-  $("#gistText").textContent = body;
-  $("#gistMeta").textContent =
-    `written from ${c.size} report${c.size === 1 ? "" : "s"} across `
-    + `${outlets.size} newsroom${outlets.size === 1 ? "" : "s"} · ${c.gist.model}`
-    + ` · written ${when(c.gist.generated_at)}`;
-  $("#gist").hidden = false;
+  const outlets = [...new Set(coverage.map(a => a.source.name))];
+  // The lead report's own photo first (its headline is the card's), else the newest.
+  const pictured = coverage.find(a => a.image && a.headline === c.label)
+    || [...coverage].reverse().find(a => a.image);
+  renderGistCard({
+    eyebrow: `Lead story · ${outlets.length} newsroom${outlets.length === 1 ? "" : "s"}`
+      + (c.last_published_at ? ` · ${when(c.last_published_at)}` : ""),
+    headline: c.label,
+    image: pictured && pictured.image,
+    imageSource: pictured && pictured.source.name,
+    summary: c.gist.summary,
+    notes: (c.gist.notes || []).filter(n => n.note),
+    outlets,
+    reports: c.size,
+    meta: `${c.gist.model} · written ${when(c.gist.generated_at)}`,
+  });
 
   $("#tally").innerHTML = `Today's most-covered story — <strong>${c.size}</strong> `
-    + `report${c.size === 1 ? "" : "s"} across <strong>${outlets.size}</strong> `
-    + `newsroom${outlets.size === 1 ? "" : "s"}`;
+    + `report${c.size === 1 ? "" : "s"} across <strong>${outlets.length}</strong> `
+    + `newsroom${outlets.length === 1 ? "" : "s"}`;
   renderResults(coverage);
 
-  todayGist = {label: $("#gistLabel").textContent, text: body,
-               meta: $("#gistMeta").textContent, tally: $("#tally").innerHTML,
-               results: $("#results").innerHTML};
+  todayGist = {card: $("#gist").innerHTML, nophoto: $("#gist").classList.contains("gist--nophoto"),
+               tally: $("#tally").innerHTML, results: $("#results").innerHTML};
   return true;
 }
 
@@ -541,11 +632,12 @@ async function showTodayGist(){
 function restoreTodayGist(){
   if (!todayGist) return;
   gistRun++;                                   // drop any stream still in flight
-  $("#gistLabel").textContent = todayGist.label;
-  $("#gistText").classList.remove("is-writing");
-  $("#gistText").textContent = todayGist.text;
-  $("#gistMeta").textContent = todayGist.meta;
-  $("#gist").hidden = false;
+  const box = $("#gist");
+  box.innerHTML = todayGist.card;
+  box.classList.toggle("gist--nophoto", todayGist.nophoto);
+  const all = box.querySelector(".gist__all");
+  if (all) all.addEventListener("click", () => $("#results").scrollIntoView({behavior: "smooth", block: "start"}));
+  box.hidden = false;
   $("#tally").innerHTML = todayGist.tally;
   $("#results").innerHTML = todayGist.results;
   $("#shared").innerHTML = "";

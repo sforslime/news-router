@@ -238,3 +238,36 @@ class TestMainStory:
         meta = _events("x", rows, self.SRC)[0]
         assert (meta["main_articles"], meta["main_newsrooms"], meta["related"]) == (2, 2, 1)
         assert (meta["articles"], meta["newsrooms"]) == (3, 3)
+
+    def test_meta_describes_the_main_story_for_the_card(self, monkeypatch):
+        _gist_cache.clear()
+        monkeypatch.setattr(gist, "stream_writer", lambda: (lambda s, p: iter(["ok"]), "groq:test"))
+        rows = [
+            make_record(id="premium-times:1", source_id="premium-times", source_article_id="1",
+                        headline="Plane crashes in Ondo", cluster_id="c1", score=0.9,
+                        image=None, published_at="2026-10-05T08:00:00Z"),
+            make_record(id="punch:2", source_id="punch", source_article_id="2",
+                        headline="NAF confirms Ondo crash", cluster_id="c1", score=0.5,
+                        image="https://punch/img.jpg", published_at="2026-10-05T09:00:00Z"),
+        ]
+        main = _events("ondo", rows, self.SRC)[0]["main"]
+        assert main == {
+            "headline": "Plane crashes in Ondo",
+            "image": "https://punch/img.jpg", "image_source": "Punch",
+            "outlets": ["Premium-Times", "Punch"],
+            "latest": "2026-10-05T09:00:00Z",
+        }
+
+    def test_card_photo_prefers_the_lead_report(self, monkeypatch):
+        _gist_cache.clear()
+        monkeypatch.setattr(gist, "stream_writer", lambda: (lambda s, p: iter(["ok"]), "groq:test"))
+        rows = [
+            make_record(id="premium-times:1", source_id="premium-times", source_article_id="1",
+                        headline="Lead", cluster_id="c1", score=0.9,
+                        image="https://pt/lead.jpg", published_at="2026-10-05T08:00:00Z"),
+            make_record(id="punch:2", source_id="punch", source_article_id="2",
+                        headline="Later", cluster_id="c1", score=0.5,
+                        image="https://punch/later.jpg", published_at="2026-10-05T09:00:00Z"),
+        ]
+        main = _events("x", rows, self.SRC)[0]["main"]
+        assert (main["headline"], main["image"], main["image_source"]) == ("Lead", "https://pt/lead.jpg", "Premium-Times")
