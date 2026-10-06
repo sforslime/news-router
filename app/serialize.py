@@ -1,7 +1,8 @@
 """Turn stored rows into API responses.
 
 Every newsroom is served the same way: whatever front-of-story fields it
-published. Article bodies are never stored, so they can never be served.
+published. Article text is never served: the opening paragraphs kept for
+gist writing (lead_text) are deliberately not listed here.
 """
 from __future__ import annotations
 

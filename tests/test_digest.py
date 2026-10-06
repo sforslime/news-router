@@ -519,3 +519,41 @@ class TestGroqFreePlan:
         body = calls[0]
         assert body["max_tokens"] == 1024 and body["reasoning_effort"] == "low"
         assert body["messages"][1]["content"].count("outlet: ") == gist.PROMPT_MAX_ARTICLES
+
+
+class TestRicherPrompt:
+    SRC = {s: {"id": s, "attribution_name": s.title()} for s in
+           ("premium-times", "punch", "vanguard", "tribune")}
+
+    def test_opening_replaces_the_snippet(self):
+        a = make_record(lead_text="The Senate on Tuesday passed the budget after debate.",
+                        snippet="The Senate on Tuesday")
+        prompt = gist.build_prompt({"label": "Budget"}, [a], self.SRC)
+        assert "opening: The Senate on Tuesday passed" in prompt
+        assert "snippet:" not in prompt
+
+    def test_one_article_per_outlet_before_any_second(self):
+        arts = [make_record(id=f"punch:{i}", source_id="punch", source_article_id=str(i),
+                            published_at=_iso(i)) for i in range(6)]
+        arts += [make_record(id="vanguard:1", source_id="vanguard", source_article_id="1",
+                             published_at=_iso(20)),
+                 make_record(id="tribune:1", source_id="tribune", source_article_id="1",
+                             published_at=_iso(30))]
+        picked = gist.pick_articles(arts)
+        assert len(picked) == gist.PROMPT_MAX_ARTICLES
+        assert {"vanguard:1", "tribune:1"} <= {a["id"] for a in picked}
+        assert [a["published_at"] for a in picked] == sorted(a["published_at"] for a in picked)
+
+    def test_prompt_version_rewrites_existing_gists(self, monkeypatch):
+        rows = [make_record()]
+        before = gist.input_hash(rows)
+        monkeypatch.setattr(gist, "PROMPT_VERSION", "v3")
+        assert gist.input_hash(rows) != before
+
+    def test_a_description_repeating_the_opening_is_dropped(self):
+        a = make_record(dek="The Senate on Tuesday passed the 2027 budget after a long debate in Abuja.",
+                        lead_text="The Senate on Tuesday passed the 2027 budget after a long debate in Abuja. More text.")
+        b = make_record(id="punch:2", source_id="punch", dek="A different standfirst.",
+                        lead_text="The Senate on Tuesday passed the budget.")
+        prompt = gist.build_prompt({"label": "Budget"}, [a, b], self.SRC)
+        assert prompt.count("description:") == 1 and "A different standfirst." in prompt

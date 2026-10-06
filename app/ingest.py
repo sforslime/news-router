@@ -81,7 +81,8 @@ def main() -> int:
         else:
             print(f"  {stats['source']:<16} new={stats['new']:<4} updated={stats['updated']:<4} unchanged={stats['unchanged']}")
 
-    print("\n" + ", ".join(f"{k}={v}" for k, v in db.counts(conn).items()))
+    purged = db.purge_leads(conn)
+    print("\n" + ", ".join(f"{k}={v}" for k, v in db.counts(conn).items()) + f", leads_purged={purged}")
     return 1 if failed else 0
 
 

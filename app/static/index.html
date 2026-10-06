@@ -238,8 +238,8 @@ details.dev[open] summary::before{content:"–"}
     <div class="card">
       <h3>Only the front of the story leaves</h3>
       <p>Headline, standfirst, byline, time, section, a short extract and the
-         thumbnail. The body of a report is read while indexing and then discarded.
-         It is never stored and never served.</p>
+         thumbnail. The opening paragraphs are kept for three days to write
+         summaries, then deleted. They are never served.</p>
     </div>
     <div class="card">
       <h3>There is nothing new to run</h3>
@@ -322,7 +322,7 @@ details.dev[open] summary::before{content:"–"}
 
   <footer class="foot">
     <span>Built by SAYOL labs · Prototype built for review — not an official service of any newsroom</span>
-    <span id="footMeta">Metadata only · article bodies are never stored</span>
+    <span id="footMeta">Metadata only · article text is never served</span>
   </footer>
 </div>
 
@@ -481,7 +481,11 @@ async function gistStream(q){
         }
         else if (ev.type === "done"){
           text.classList.remove("is-writing");
-          meta.textContent = `written from ${info.articles} reports across ${info.newsrooms} newsrooms · ${ev.model}${ev.cached ? " · cached" : ""}`;
+          const tail = `${ev.model}${ev.cached ? " · cached" : ""}`;
+          meta.textContent = info.main_articles != null
+            ? `main story from ${info.main_articles} reports across ${info.main_newsrooms} newsrooms`
+              + (info.related ? ` · plus ${info.related} related` : "") + ` · ${tail}`
+            : `written from ${info.articles} reports across ${info.newsrooms} newsrooms · ${tail}`;
         }
       }
       if (done) break;

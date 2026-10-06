@@ -24,8 +24,11 @@ _CACHE_MAX = 100
 _gist_cache: dict[str, tuple[float, str, str]] = {}  # input hash -> (expires, text, model)
 
 # Enough coverage to be worth a summary, few enough articles to stay a gist.
+# Up to MATCH_POOL matches are grouped by story; the strongest story is written
+# up in full, and a few others are mentioned by headline only.
 MIN_TOPIC_ARTICLES = 2
-MAX_TOPIC_ARTICLES = 12
+MATCH_POOL = 40
+MAX_RELATED = 4
 
 
 @router.get("/v1/search", summary="Full-text search across every indexed newsroom")
@@ -71,8 +74,8 @@ async def search(
 
 
 def _topic_rows(conn, q: str, days: int) -> list:
-    """The articles a topic gist reads: same match as /v1/search, restricted to
-    the recent window, advertorial and retractions excluded, capped."""
+    """The articles a topic gist chooses from: same match as /v1/search,
+    restricted to the recent window, advertorial and retractions excluded."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat().replace("+00:00", "Z")
     return conn.execute(
         """SELECT a.*, ts_rank_cd(a.search, query) AS score
@@ -80,8 +83,28 @@ def _topic_rows(conn, q: str, days: int) -> list:
            WHERE a.search @@ query AND a.published_at >= %(cutoff)s
              AND a.sponsored = 0 AND a.retracted = 0
            ORDER BY score DESC, a.published_at DESC LIMIT %(cap)s""",
-        {"q": q, "cutoff": cutoff, "cap": MAX_TOPIC_ARTICLES},
+        {"q": q, "cutoff": cutoff, "cap": MATCH_POOL},
     ).fetchall()
+
+
+def _score(r) -> float:
+    return float(r.get("score") or 0)
+
+
+def _pick_story(rows: list) -> tuple[list, list]:
+    """(main, related). Matches are grouped by the story the router already put
+    them in; the group with the most matching weight is the main story. Each
+    other group contributes its best-matching report, by headline only, so a
+    loose word match cannot get blended into the main story."""
+    groups: dict[str, list] = {}
+    for r in rows:
+        groups.setdefault(r.get("cluster_id") or f"solo:{r['id']}", []).append(r)
+    ranked = sorted(groups.values(), key=lambda g: sum(_score(r) for r in g), reverse=True)
+    if not ranked:
+        return [], []
+    main = gist.pick_articles(ranked[0])
+    related = [max(g, key=_score) for g in ranked[1:1 + MAX_RELATED]]
+    return main, related
 
 
 def _ndjson(obj: dict) -> str:
@@ -89,16 +112,20 @@ def _ndjson(obj: dict) -> str:
 
 
 def _gist_lines(q: str, days: int, rows: list, sources: dict, identity: str = "local"):
-    newsrooms = {r["source_id"] for r in rows}
+    main, related = _pick_story(rows)
+    used = main + related
     yield _ndjson({"type": "meta", "query": q, "days": days,
-                   "articles": len(rows), "newsrooms": len(newsrooms)})
+                   "articles": len(used), "newsrooms": len({r["source_id"] for r in used}),
+                   "main_articles": len(main),
+                   "main_newsrooms": len({r["source_id"] for r in main}),
+                   "related": len(related)})
 
-    if len(rows) < MIN_TOPIC_ARTICLES:
+    if len(used) < MIN_TOPIC_ARTICLES:
         yield _ndjson({"type": "status", "status": "too little",
                        "message": "Not enough recent reporting on this to write a gist."})
         return
 
-    key = gist.input_hash(rows)
+    key = gist.input_hash(used)
     cached = _gist_cache.get(key)
     if cached and cached[0] > time.monotonic():
         yield _ndjson({"type": "delta", "text": cached[1]})
@@ -116,7 +143,7 @@ def _gist_lines(q: str, days: int, rows: list, sources: dict, identity: str = "l
                        "message": "Summaries are paused for a bit."})
         return
 
-    prompt = gist.build_topic_prompt(q, rows, sources)
+    prompt = gist.build_topic_prompt(q, main, sources, related)
     parts: list[str] = []
     try:
         for delta in stream_fn(gist.TOPIC_SYSTEM, prompt):

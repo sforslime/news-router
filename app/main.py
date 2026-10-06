@@ -16,7 +16,7 @@ DESCRIPTION = """
 One API across Nigerian newsrooms.
 
 Returns **metadata only** — headline, dek, byline, timestamp, canonical URL,
-snippet and thumbnail — never article bodies. Everything is read from the
+snippet and thumbnail — never article text. Everything is read from the
 feeds and site endpoints the newsrooms publish openly, and every record links
 back to the newsroom that filed it.
 """

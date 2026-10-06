@@ -12,8 +12,10 @@ gets a short gist — what happened, then a line on what each outlet's coverage
 adds — written only from what the outlets published.
 
 **Metadata only.** Headline, dek, byline, timestamps, canonical URL, section,
-snippet and thumbnail. Article bodies are read transiently during ingestion — to
-hash for change detection and to spot wire copy — and are never stored or served.
+snippet and thumbnail. Article bodies are read during ingestion — to hash for
+change detection and to spot wire copy. The opening paragraphs (up to 900
+characters) are kept for three days to write summaries, then deleted; they are
+never served and never searched.
 
 ## Run it
 
@@ -172,9 +174,9 @@ Switching to a different model rewrites it.
 Gists are written within Groq's free plan for `openai/gpt-oss-120b`: about 30
 requests and 8,000 tokens a minute, 200,000 tokens a day, **per account**. So
 only stories updated in the last 48 hours are considered, the most widely
-covered first; each prompt carries at most 8 articles and asks for at most
-1,024 tokens with low reasoning effort (~1.5k tokens a call); calls are spaced
-12 seconds apart; and a run stops starting new calls after 230 seconds to
+covered first; each prompt carries at most 6 articles, one per outlet first,
+with their opening paragraphs, and asks for at most 1,024 tokens with low
+reasoning effort (~3k tokens a call); calls are spaced 25 seconds apart; and a run stops starting new calls after 230 seconds to
 finish inside Vercel's 300-second limit. A 429 asking for a short wait is
 waited out once; any other 429 ends the run with one error and a note of how
 many stories are left, instead of trying every remaining story and spending
@@ -183,9 +185,14 @@ went (worked, not configured, offline, errors) is saved and shown in
 `/v1/clusters` and `/v1/health`, so a missing gist comes with a reason.
 
 **Topic gists.** `GET /v1/search/gist?q=…` summarises recent coverage of any
-search, over the last 7 days by default (`days`, 1–30). It reads the
-best-matching 2 to 12 articles, leaving out sponsored and retracted items, and
-streams the text as it is written: NDJSON, one `meta` line, then `delta` lines,
+search, over the last 7 days by default (`days`, 1–30). It takes up to 40
+matching articles (sponsored and retracted left out) and groups them by the
+story the router already put them in. The strongest story is the main one: up
+to 6 of its reports, one per newsroom first, with their opening paragraphs. Up
+to 4 other stories go in as headlines only, and the writer mentions them in a
+single "Also in the news" sentence instead of blending them into the main
+story. The `meta` line reports `main_articles`, `main_newsrooms` and `related`
+alongside the totals. It streams the text as it is written: NDJSON, one `meta` line, then `delta` lines,
 then `done`. If there is too little coverage or no writer available, it sends a
 single `status` line instead. A summary is remembered for an hour, keyed on
 the articles it read rather than the words typed, so "nysc" and "nysc camp"
@@ -331,7 +338,7 @@ scratch database: it is a copy-on-write clone, so it costs nothing to throw away
 ## Not built yet
 
 - Clustering recall. Matching runs on headline words, publisher entity tags and
-  wire markers, because bodies are never stored. That favours precision: two
+  wire markers, not article text. That favours precision: two
   outlets writing the same event under very different headlines will sometimes
   stay apart, which is the honest failure mode for something the site presents
   as "the same story".

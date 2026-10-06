@@ -282,3 +282,65 @@ class TestWordPressQuirks:
         WordPressAdapter().fetch({"id": "w", "endpoint": "https://x/wp-json/wp/v2", "embed": 0}, limit=10)
         WordPressAdapter().fetch({"id": "p", "endpoint": "https://x/wp-json/wp/v2"}, limit=10)
         assert "_embed" not in calls[0] and calls[1]["_embed"] == 1
+
+
+class TestLeadText:
+    """The opening paragraphs are kept only to write gists: filled on read,
+    never served, cleared after three days."""
+
+    def _wp(self, body: str) -> dict:
+        return {
+            "id": 7, "title": {"rendered": "Senate passes budget"},
+            "excerpt": {"rendered": "The Senate passed the budget."},
+            "content": {"rendered": body},
+            "date_gmt": "2026-10-05T10:00:00", "date": "2026-10-05T11:00:00",
+            "modified_gmt": "2026-10-05T10:00:00", "link": "https://example.ng/budget",
+        }
+
+    def test_wordpress_lead_is_the_opening_capped(self):
+        body = "<p>" + "The Senate on Tuesday passed the 2027 budget after a long debate. " * 40 + "</p>"
+        rec = n.normalize_wordpress(self._wp(body), "premium-times")
+        assert rec["lead_text"].startswith("The Senate on Tuesday passed")
+        assert len(rec["lead_text"]) <= n.LEAD_CHARS + 1
+
+    def test_rss_lead_comes_from_content_encoded_when_present(self):
+        import feedparser
+        xml = """<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>
+          <item><title>Senate passes budget</title><link>https://example.ng/budget</link>
+          <guid>https://example.ng/?p=9</guid><pubDate>Mon, 05 Oct 2026 10:00:00 +0000</pubDate>
+          <description>Short description.</description>
+          <content:encoded><![CDATA[<p>The Senate on Tuesday passed the budget.</p>]]></content:encoded>
+          </item>
+          <item><title>No body here</title><link>https://example.ng/x</link>
+          <guid>https://example.ng/?p=10</guid><pubDate>Mon, 05 Oct 2026 10:00:00 +0000</pubDate>
+          <description>Only this.</description></item></channel></rss>"""
+        with_body, without = feedparser.parse(xml).entries
+        assert n.normalize_rss(with_body, "vanguard")["lead_text"] == "The Senate on Tuesday passed the budget."
+        assert n.normalize_rss(without, "legit")["lead_text"] is None
+
+    def test_lead_is_never_served(self, conn):
+        db.upsert_article(conn, make_record(lead_text="Private opening paragraphs."))
+        article = conn.execute("SELECT * FROM articles WHERE id='premium-times:1'").fetchone()
+        src = conn.execute("SELECT * FROM sources WHERE id='premium-times'").fetchone()
+        out = article_out(article, src)
+        assert "lead_text" not in out
+        assert "Private opening" not in json.dumps(out)
+
+    def test_an_unchanged_reread_fills_a_missing_lead(self, conn):
+        db.upsert_article(conn, make_record(lead_text=None))
+        assert db.upsert_article(conn, make_record(lead_text="Now we have it.")) == "unchanged"
+        row = conn.execute("SELECT lead_text FROM articles WHERE id='premium-times:1'").fetchone()
+        assert row["lead_text"] == "Now we have it."
+
+    def test_leads_are_purged_after_three_days(self, conn):
+        from datetime import datetime, timedelta, timezone
+        old = (datetime.now(timezone.utc) - timedelta(hours=80)).isoformat().replace("+00:00", "Z")
+        db.upsert_article(conn, make_record(id="premium-times:1", source_article_id="1",
+                                            lead_text="old", first_seen_at=old))
+        fresh = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        db.upsert_article(conn, make_record(id="premium-times:2", source_article_id="2",
+                                            lead_text="new", canonical_url="https://x/2",
+                                            first_seen_at=fresh))
+        assert db.purge_leads(conn) == 1
+        rows = {r["id"]: r["lead_text"] for r in conn.execute("SELECT id, lead_text FROM articles")}
+        assert rows == {"premium-times:1": None, "premium-times:2": "new"}

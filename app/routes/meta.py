@@ -37,5 +37,5 @@ async def index(auth: dict = Depends(authenticate)):
             "GET /v1/clusters": "Same story across outlets",
         },
         "rate_limit": {"plan": auth["plan"], "per_minute": auth["limit"], "remaining": auth["remaining"]},
-        "notes": "Metadata only. Article bodies are never stored or served.",
+        "notes": "Metadata only. Article text is never served; opening paragraphs are kept three days to write summaries.",
     }

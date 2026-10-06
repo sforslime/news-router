@@ -64,6 +64,9 @@ CREATE TABLE IF NOT EXISTS articles (
   retracted             INTEGER NOT NULL DEFAULT 0,
   retraction_note       TEXT,
   cluster_id            TEXT,
+  -- Opening paragraphs, kept only to write gists: never served, not searched,
+  -- cleared three days after first sight.
+  lead_text             TEXT,
   -- Full-text index, maintained by Postgres rather than by the application.
   -- Weighted so a term in the headline outranks the same term in a snippet.
   search                tsvector GENERATED ALWAYS AS (
@@ -74,6 +77,8 @@ CREATE TABLE IF NOT EXISTS articles (
                         ) STORED,
   UNIQUE (source_id, source_article_id)
 );
+
+ALTER TABLE articles ADD COLUMN IF NOT EXISTS lead_text TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_articles_published  ON articles(published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_articles_source     ON articles(source_id, published_at DESC);

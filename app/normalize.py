@@ -1,7 +1,8 @@
 """Map publisher payloads onto the router's unified schema.
 
-The router stores metadata only. Article bodies are read transiently — to compute
-a change-detection hash and to spot wire copy — and are never persisted.
+The router serves metadata only. Article bodies are read during ingestion — to
+compute a change-detection hash and to spot wire copy — and only the opening
+paragraphs are kept, privately and for three days, to write gists.
 """
 from __future__ import annotations
 
@@ -80,6 +81,11 @@ def collapse_duplicate(text: str) -> str:
         if head and head == tail:
             return head
     return s
+
+
+# How much of a report's opening is kept for gist writing: three or four
+# paragraphs, about 225 tokens.
+LEAD_CHARS = 900
 
 
 def truncate(text: str, limit: int) -> str:
@@ -235,6 +241,9 @@ def normalize_wordpress(post: dict[str, Any], source_id: str) -> dict[str, Any]:
         "canonical_url": _wp_canonical(post),
         "section": section,
         "snippet": snippet or None,
+        # The opening paragraphs, for writing gists only: never served, and
+        # cleared three days after first sight (db.purge_leads).
+        "lead_text": truncate(collapse_duplicate(body), LEAD_CHARS) or None,
         "image": _wp_image(post),
         "language": detect_language(f"{headline} {dek}"),
         # Hash covers the body so a silent edit is caught even when the publisher
@@ -295,6 +304,15 @@ def _struct_to_iso(st) -> str | None:
     return dt.isoformat().replace("+00:00", "Z")
 
 
+def _rss_lead(entry: Any) -> str | None:
+    """Opening paragraphs from content:encoded, which some feeds carry (Vanguard
+    and Channels do; Legit.ng and Sahara Reporters do not)."""
+    parts = entry.get("content") or []
+    html = " ".join(p.get("value", "") for p in parts if isinstance(p, dict))
+    text = collapse_duplicate(_strip_feed_footers(strip_html(html)))
+    return truncate(text, LEAD_CHARS) or None
+
+
 def normalize_rss(entry: Any, source_id: str) -> dict[str, Any]:
     """feedparser entry -> unified router record.
 
@@ -342,6 +360,7 @@ def normalize_rss(entry: Any, source_id: str) -> dict[str, Any]:
         "canonical_url": link,
         "section": section,
         "snippet": truncate(description, 320) or None,
+        "lead_text": _rss_lead(entry),
         "image": image,
         "language": detect_language(f"{headline} {description}"),
         "content_hash": content_hash(headline, description),

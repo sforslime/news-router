@@ -3,7 +3,7 @@
 Runs incrementally: only articles without a cluster_id are ever assigned, so a
 re-run never reshuffles what earlier runs decided. Matching uses the metadata
 the router stores — headline words, publisher entity tags, wire markers —
-because bodies are never persisted. That buys precision more than recall: two
+and not article text. That buys precision more than recall: two
 outlets writing the same event under very different headlines will sometimes
 stay apart, which is the honest failure mode for a grouping the site presents
 as "the same story".

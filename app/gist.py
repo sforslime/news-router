@@ -1,8 +1,8 @@
 """Write the gist of each story cluster with Claude.
 
-The model reads only what the API itself serves: headline and attribution,
-plus dek and snippet where the outlet provides them. Bodies are never stored,
-so they can never leak in here. Each gist records
+The model reads the headline and attribution, plus the dek and the report's
+opening paragraphs where the outlet provides them (kept three days, never
+served). Each gist records
 a hash of its inputs; a cluster whose coverage has not moved costs nothing on
 the next run.
 """
@@ -27,13 +27,13 @@ from .normalize import content_hash, now_iso
 MAX_TOKENS = 1024
 
 # Groq's free plan (openai/gpt-oss-120b): about 30 requests and 8,000 tokens a
-# minute, 200,000 tokens a day, per account. A gist is ~1.5k tokens, so calls
+# minute, 200,000 tokens a day, per account. A gist is ~3k tokens, so calls
 # are spaced to stay under the per-minute cap, and a run stops starting new
 # calls in time to finish inside Vercel's 300s function limit.
-GROQ_CALL_GAP = 12.0
+GROQ_CALL_GAP = 25.0
 RUN_BUDGET_S = 230.0
 SHORT_WAIT_S = 20.0           # a 429 asking for at most this is waited out once
-PROMPT_MAX_ARTICLES = 8       # past this a big story costs more and adds little
+PROMPT_MAX_ARTICLES = 6       # past this a big story costs more and adds little
 RECENT_HOURS = 48             # only stories still moving get a gist
 
 
@@ -59,8 +59,8 @@ class Gist(BaseModel):
 SYSTEM = """You write the gist of a news story for a Nigerian news aggregator.
 
 You are given what several newsrooms published about one story: each outlet's
-headline and, where the outlet provides one, a short description. Write only
-from that material. Never add facts, names, figures or background that are not
+headline and, where provided, a short description and the report's opening
+paragraphs. Write only from that material. Never add facts, names, figures or background that are not
 in it, and never guess at what an outlet meant.
 
 Return:
@@ -78,37 +78,55 @@ Plain language throughout — no press-release phrasing, no editorialising."""
 TOPIC_SYSTEM = """You write the gist of recent news coverage on one topic, for a
 Nigerian news aggregator.
 
-You are given what several newsrooms published about the topic in the last few
-days: each outlet's headline and, where the outlet provides one, a short
-description. The items may span several distinct stories about the topic. Write
-only from that material. Never add facts, names, figures or background that are
-not in it, and never guess at what an outlet meant.
+You are given a MAIN STORY: what several newsrooms published about it, each
+with a headline and, where provided, a short description and the report's
+opening paragraphs. You may also be given OTHER MATCHING REPORTS: headlines of
+separate stories that matched the same search. Write only from that material.
+Never add facts, names, figures or background that are not in it, and never
+guess at what an outlet meant.
 
 Write plain text, no markdown:
-- First, one paragraph of two to five plain, neutral sentences on what has been
-  published recently — group related items naturally, newest developments first.
-  If accounts disagree, say so and name which outlet says what.
-- Then a blank line, then one line per outlet in the form
-  "Outlet name: what its coverage adds or emphasises", at most 20 words each.
+- First, one paragraph of two to four plain, neutral sentences on the main
+  story only: what happened, newest developments first. If accounts disagree,
+  say so and name which outlet says what.
+- If other matching reports were given, add one sentence beginning
+  "Also in the news:" that names them briefly. Do not merge them into the main
+  story.
+- Then a blank line, then one line per outlet that covered the main story, in
+  the form "Outlet name: what its coverage adds or emphasises", at most 20
+  words each.
 
 No press-release phrasing, no editorialising."""
 
 
+# Bumped when what a prompt carries changes, so existing gists are rewritten
+# with the richer input. v2: opening paragraphs instead of the snippet.
+PROMPT_VERSION = "v2"
+
+
 def input_hash(articles: list[Any]) -> str:
-    """Moves when membership changes or any member's stored text changes."""
-    return content_hash(*sorted(f"{a['id']}␟{a['content_hash']}" for a in articles))
+    """Moves when membership changes, any member's stored text changes, or the
+    prompt format does."""
+    return content_hash(PROMPT_VERSION, *sorted(f"{a['id']}␟{a['content_hash']}" for a in articles))
 
 
 def _article_block(a: Any, src: Any) -> list[str]:
-    """One article as prompt lines: the same fields the API serves."""
+    """One article as prompt lines: the fields the API serves, plus the opening
+    paragraphs where kept (never served; see normalize.LEAD_CHARS)."""
     lines = [
         f"outlet: {src['attribution_name']} (source_id: {src['id']})",
         f"published: {a['published_at']}",
         f"headline: {a['headline']}",
     ]
-    if a["dek"]:
+    lead = a.get("lead_text")
+    # Many outlets' excerpt is just the article's first lines; when the opening
+    # already starts with it, sending both only doubles the tokens.
+    if a["dek"] and not (lead and lead.startswith(a["dek"].rstrip(" .…[]")[:100])):
         lines.append(f"description: {a['dek']}")
-    if a["snippet"] and a["snippet"] != a["dek"]:
+    if lead:
+        # The snippet is the first 320 characters of this same text.
+        lines.append(f"opening: {a['lead_text']}")
+    elif a["snippet"] and a["snippet"] != a["dek"]:
         lines.append(f"snippet: {a['snippet']}")
     if a["wire_source"]:
         lines.append(f"wire agency: {a['wire_source']}")
@@ -116,18 +134,35 @@ def _article_block(a: Any, src: Any) -> list[str]:
     return lines
 
 
+def pick_articles(articles: list[Any], n: int = PROMPT_MAX_ARTICLES) -> list[Any]:
+    """At most n articles, one per outlet before any outlet gets a second, newest
+    first; returned oldest first so the prompt reads in order."""
+    newest = sorted(articles, key=lambda a: a["published_at"] or "", reverse=True)
+    picked, outlets = [], set()
+    for a in newest:
+        if a["source_id"] not in outlets:
+            picked.append(a)
+            outlets.add(a["source_id"])
+    picked += [a for a in newest if a not in picked]
+    return sorted(picked[:n], key=lambda a: a["published_at"] or "")
+
+
 def build_prompt(cluster: Any, articles: list[Any], sources: dict[str, Any]) -> str:
     lines = [f"Story: {cluster['label']}", ""]
-    # Articles arrive oldest first; keep the newest, still in order.
-    for a in articles[-PROMPT_MAX_ARTICLES:]:
+    for a in pick_articles(articles):
         lines.extend(_article_block(a, sources[a["source_id"]]))
     return "\n".join(lines).strip()
 
 
-def build_topic_prompt(topic: str, articles: list[Any], sources: dict[str, Any]) -> str:
-    lines = [f"Recent coverage of: {topic}", ""]
+def build_topic_prompt(topic: str, articles: list[Any], sources: dict[str, Any],
+                       related: list[Any] = ()) -> str:
+    """The main story in full, then other matching reports as headlines only."""
+    lines = [f"Recent coverage of: {topic}", "", "MAIN STORY", ""]
     for a in articles:
         lines.extend(_article_block(a, sources[a["source_id"]]))
+    if related:
+        lines += ["OTHER MATCHING REPORTS", ""]
+        lines += [f"{sources[a['source_id']]['attribution_name']}: {a['headline']}" for a in related]
     return "\n".join(lines).strip()
 
 

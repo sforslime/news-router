@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -127,7 +128,8 @@ def upsert_article(conn: psycopg.Connection, rec: dict[str, Any]) -> str:
     cols = (
         "id, source_id, source_article_id, headline, dek, byline, published_at, "
         "published_at_reported, updated_at, first_seen_at, canonical_url, section, "
-        "snippet, image, language, wire_source, paywalled, sponsored, content_hash, entities"
+        "snippet, image, language, wire_source, paywalled, sponsored, content_hash, entities, "
+        "lead_text"
     )
     names = [c.strip() for c in cols.split(",")]
     placeholders = ", ".join(f"%({c})s" for c in names)
@@ -144,6 +146,10 @@ def upsert_article(conn: psycopg.Connection, rec: dict[str, Any]) -> str:
         return "new"
 
     if existing["content_hash"] == rec["content_hash"]:
+        if rec.get("lead_text") and not existing["lead_text"]:
+            # Read before lead text was kept, or after it was purged: fill it in.
+            conn.execute("UPDATE articles SET lead_text = %s WHERE id = %s",
+                         (rec["lead_text"], rec["id"]))
         return "unchanged"
 
     changed = [f for f in _TRACKED if (existing[f] or None) != (rec.get(f) or None)]
@@ -163,7 +169,8 @@ def upsert_article(conn: psycopg.Connection, rec: dict[str, Any]) -> str:
              updated_at=%(updated_at)s, canonical_url=%(canonical_url)s, section=%(section)s,
              snippet=%(snippet)s, image=%(image)s, language=%(language)s, wire_source=%(wire_source)s,
              paywalled=%(paywalled)s, sponsored=%(sponsored)s, content_hash=%(content_hash)s,
-             entities=%(entities)s, revision=%(revision)s
+             entities=%(entities)s, revision=%(revision)s,
+             lead_text=COALESCE(%(lead_text)s, lead_text)
            WHERE id=%(id)s""",
         {**payload, "revision": revision},
     )
@@ -174,6 +181,17 @@ def upsert_article(conn: psycopg.Connection, rec: dict[str, Any]) -> str:
          rec.get("snippet"), now_iso(), json.dumps(changed)),
     )
     return "updated"
+
+
+def purge_leads(conn: psycopg.Connection, hours: int = 72) -> int:
+    """Clear opening paragraphs once a report is older than gists look back.
+    They exist only to write gists, so they are not kept beyond that."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat().replace("+00:00", "Z")
+    cur = conn.execute(
+        "UPDATE articles SET lead_text = NULL WHERE lead_text IS NOT NULL AND first_seen_at < %s",
+        (cutoff,),
+    )
+    return cur.rowcount
 
 
 def mark_ingest(conn: psycopg.Connection, source_id: str, error: str | None = None) -> None:

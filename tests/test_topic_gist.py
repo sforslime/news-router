@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from app import gist
-from app.routes.search import MAX_TOPIC_ARTICLES, _gist_cache, _gist_lines, _topic_rows
+from app.routes.search import MATCH_POOL, _gist_cache, _gist_lines, _topic_rows
 from conftest import make_record
 
 
@@ -46,11 +46,11 @@ class TestTopicRows:
 
     def test_cap_is_respected(self, conn):
         from app import db as db_mod
-        for i in range(MAX_TOPIC_ARTICLES + 5):
+        for i in range(MATCH_POOL + 5):
             db_mod.upsert_article(conn, make_record(
                 id=f"premium-times:{i}", source_article_id=str(i),
                 headline=f"Osun election update number {i}", published_at=_iso(1)))
-        assert len(_topic_rows(conn, "osun election", days=7)) == MAX_TOPIC_ARTICLES
+        assert len(_topic_rows(conn, "osun election", days=7)) == MATCH_POOL
 
 
 class TestTopicPrompt:
@@ -199,3 +199,42 @@ class TestSpamGuard:
         list(gist._stream_groq("system", "prompt"))
         gist._call_groq("prompt")
         assert seen == {"search": "Bearer search-key", "digest": "Bearer digest-key"}
+
+
+class TestMainStory:
+    """A search summary is built around one story; other matches are named,
+    not blended in."""
+    SRC = {s: {"id": s, "attribution_name": s.title()} for s in
+           ("premium-times", "punch", "vanguard", "ripples")}
+
+    def _row(self, sid, n, cluster, score, headline):
+        return make_record(id=f"{sid}:{n}", source_id=sid, source_article_id=str(n),
+                           headline=headline, cluster_id=cluster, score=score)
+
+    def test_strongest_story_leads_and_others_are_headlines_only(self):
+        from app.routes.search import _pick_story
+        rows = [
+            self._row("premium-times", 1, "c-court", 0.5, "Adeyemi pleads not guilty"),
+            self._row("punch", 2, "c-court", 0.4, "Fake council boss remanded"),
+            self._row("vanguard", 3, "c-court", 0.3, "Court sets bail hearing"),
+            self._row("ripples", 4, "c-prof", 0.6, "Fake professor exposed"),
+            self._row("punch", 5, None, 0.2, "NRS warns of fake recruitment"),
+        ]
+        main, related = _pick_story(rows)
+        assert {a["cluster_id"] for a in main} == {"c-court"} and len(main) == 3
+        assert [a["headline"] for a in related] == ["Fake professor exposed", "NRS warns of fake recruitment"]
+
+        prompt = gist.build_topic_prompt("fake agency", main, self.SRC, related)
+        head, _, tail = prompt.partition("OTHER MATCHING REPORTS")
+        assert "MAIN STORY" in head and "Adeyemi pleads not guilty" in head
+        assert "Ripples: Fake professor exposed" in tail
+        assert "headline:" not in tail          # related stories carry no detail
+
+    def test_meta_reports_main_and_related(self, monkeypatch):
+        _gist_cache.clear()
+        monkeypatch.setattr(gist, "stream_writer", lambda: (lambda s, p: iter(["ok"]), "groq:test"))
+        rows = [self._row("premium-times", 1, "c1", 0.5, "A"), self._row("punch", 2, "c1", 0.4, "B"),
+                self._row("ripples", 3, "c2", 0.1, "C")]
+        meta = _events("x", rows, self.SRC)[0]
+        assert (meta["main_articles"], meta["main_newsrooms"], meta["related"]) == (2, 2, 1)
+        assert (meta["articles"], meta["newsrooms"]) == (3, 3)

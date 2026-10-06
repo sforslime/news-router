@@ -43,6 +43,7 @@ def _since(source) -> str | None:
 @router.get("/v1/admin/ingest", include_in_schema=False)
 async def run_ingest(
     limit: int = 200,
+    full: bool = False,
     authorization: str | None = Header(None),
 ):
     """Fetch each enabled newsroom. Called on a schedule, not by hand.
@@ -56,7 +57,10 @@ async def run_ingest(
         db.init_db(conn)
         db.sync_sources(conn)
         sources = [dict(s) for s in db.enabled_sources(conn)]
-        results = ingest_all(conn, sources, limit, _since)
+        # full=1 ignores each outlet's resume point: a one-off re-read, e.g. to
+        # fill in fields added after reports were first collected.
+        results = ingest_all(conn, sources, limit, (lambda _: None) if full else _since)
+        purged = db.purge_leads(conn)
         totals = db.counts(conn)
 
     failed = [r["source"] for r in results if r["error"]]
@@ -64,6 +68,7 @@ async def run_ingest(
         "status": "degraded" if failed else "ok",
         "sources": results,
         "counts": totals,
+        "leads_purged": purged,
     }
 
 
