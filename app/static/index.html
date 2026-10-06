@@ -161,7 +161,6 @@ details.dev[open] summary::before{content:"–"}
   font-family:var(--display);font-weight:600;font-size:1rem}
 /* The newsrooms that are only listed do not each need their own rule and their
    own repeated label — as a run of names they read as what they are. */
-.sgroup__inline{display:flex;flex-wrap:wrap;gap:.55rem 1.7rem;color:var(--meta);margin:1rem 0 0}
 .dot{display:inline-block;width:.5rem;height:.5rem;border-radius:50%;margin-right:.6rem;
   flex:0 0 auto;background:var(--accent)}
 
@@ -228,7 +227,7 @@ details.dev[open] summary::before{content:"–"}
 
   <h2 class="section">Who is in the index</h2>
   <p class="section__sub">
-    Every newsroom the router knows about, and which of them it actually read today.
+    Every newsroom the router reads, and when it last read them.
   </p>
   <div class="sources" id="sources"></div>
 
@@ -372,12 +371,11 @@ function when(iso){
   return d.toLocaleDateString("en-GB", {day:"numeric", month:"short"});
 }
 
-// Two groups, not eleven rows each captioned "not indexed". The ones being read
-// carry a row apiece; the rest are a run of names, which is all they are so far.
+// Only the newsrooms actually being read; ones switched off in the registry
+// are left off the page.
 function roster(list){
   const by = (a,b) => a.name.localeCompare(b.name);
   const on  = list.filter(s => s.enabled).sort(by);
-  const off = list.filter(s => !s.enabled).sort(by);
   const lastRead = on.map(s => s.last_ingest_at).filter(Boolean).sort().pop();
 
   const head = (label, n) => `<div class="sgroup__head"><span>${label}</span>`
@@ -386,11 +384,6 @@ function roster(list){
   let html = `<div class="sgroup">`
     + head(lastRead ? `Indexed &middot; last read ${when(lastRead)}` : "Indexed", on.length)
     + on.map(s => `<div class="srow"><span class="dot"></span>${esc(s.name)}</div>`).join("")
-    + `</div>`;
-
-  if (off.length) html += `<div class="sgroup">`
-    + head("Known, not read from", off.length)
-    + `<div class="sgroup__inline">${off.map(s => `<span>${esc(s.name)}</span>`).join("")}</div>`
     + `</div>`;
 
   return html;
