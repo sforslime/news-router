@@ -51,11 +51,13 @@ def create_app() -> FastAPI:
     for module in (meta, sources, articles, search, clusters, admin):
         app.include_router(module.router)
 
-    @app.get("/", include_in_schema=False)
+    # GET and HEAD: link-preview crawlers (LinkedIn among them) check with HEAD
+    # first and give up on a 405.
+    @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
     async def home():
         return FileResponse(STATIC_DIR / "index.html")
 
-    @app.get("/og.png", include_in_schema=False)
+    @app.api_route("/og.png", methods=["GET", "HEAD"], include_in_schema=False)
     async def share_image():
         # The picture link previews show (WhatsApp, X, LinkedIn).
         return FileResponse(STATIC_DIR / "og.png", headers={"Cache-Control": "public, max-age=86400"})
