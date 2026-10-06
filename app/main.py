@@ -55,6 +55,11 @@ def create_app() -> FastAPI:
     async def home():
         return FileResponse(STATIC_DIR / "index.html")
 
+    @app.get("/og.png", include_in_schema=False)
+    async def share_image():
+        # The picture link previews show (WhatsApp, X, LinkedIn).
+        return FileResponse(STATIC_DIR / "og.png", headers={"Cache-Control": "public, max-age=86400"})
+
     return app
 
 
