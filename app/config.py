@@ -20,6 +20,14 @@ DATABASE_URL_DIRECT = os.environ.get("DATABASE_URL_UNPOOLED") or DATABASE_URL
 # URL when unset, which still works — it just stops enforcing the guarantee.
 DATABASE_URL_READONLY = os.environ.get("DATABASE_URL_READONLY") or DATABASE_URL
 
+# Credentials for a role that can only INSERT into usage_events: how the
+# serving path records what is searched and downloaded without being able to
+# change anything else. Falls back to the direct URL when unset.
+DATABASE_URL_USAGE = os.environ.get("DATABASE_URL_USAGE") or DATABASE_URL_DIRECT
+
+# Opens the usage dashboard (/admin). Unset, the dashboard refuses everyone.
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+
 # A separate database for the test suite, so tests can drop and rebuild tables
 # without touching real data. Tests that need storage skip when this is unset.
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "")

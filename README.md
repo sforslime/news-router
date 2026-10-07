@@ -286,6 +286,26 @@ Coming from the old SQLite file:
 That preserves ids, `first_seen_at` and the full revision history, none of which
 can be recovered by re-ingesting — publishers only ever serve what is current.
 
+## Usage tracking
+
+Every search, download, summary and API call is recorded in `usage_events`,
+after the response has gone out; a failure to record never fails a request.
+The front page's own background requests are left out, and visitors are a
+salted hash of their address, so repeat visitors can be counted but no address
+is kept. `/admin` shows it all (visitors, searches, downloads, countries, the
+latest requests) once given `ADMIN_TOKEN`.
+
+The serving path writes these rows as `router_logger`, a role that can only
+insert into this one table (`DATABASE_URL_USAGE`; without it, the direct URL is
+used). One-time setup, as the database owner:
+
+```sql
+CREATE ROLE router_logger LOGIN PASSWORD '…';
+GRANT INSERT ON usage_events TO router_logger;
+GRANT USAGE ON SEQUENCE usage_events_id_seq TO router_logger;
+GRANT SELECT ON usage_events TO router_reader;   -- the dashboard reads it
+```
+
 ## Deployment
 
 ```bash

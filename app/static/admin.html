@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charSet="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Router Usage</title>
+<meta name="robots" content="noindex, nofollow"/>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2314110f'/%3E%3Cpath d='M7 24V8h3.4l7.2 10.2V8H21v16h-3.4L10.4 13.8V24z' fill='%23e8e6e1'/%3E%3C/svg%3E"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin=""/>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;800&family=Newsreader:opsz,wght@6..72,400;6..72,500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --paper:#e8e6e1; --paper-deep:#ded9d2; --ink:#14110f; --rule:#c3bdb4;
+  --meta:#625c55; --accent:#1f5f4a;
+  --display:"Archivo",system-ui,sans-serif;
+  --body:"Newsreader",Georgia,serif;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{background:var(--paper)}
+body{margin:0;color:var(--ink);font-family:var(--body);font-size:17px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:66rem;margin:0 auto;padding:0 1rem 5rem}
+.masthead{border-bottom:2px solid var(--ink);padding:1.1rem 0 .7rem;display:flex;align-items:baseline;
+  justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.masthead a{font-family:var(--display);font-weight:800;letter-spacing:-.02em;font-size:1.02rem;text-decoration:none;color:var(--ink)}
+.masthead span{font-family:var(--mono);font-size:.74rem;color:var(--meta);text-transform:uppercase;letter-spacing:.08em}
+h1{font-family:var(--display);font-weight:800;font-size:clamp(2rem,6vw,3rem);letter-spacing:-.03em;margin:2.2rem 0 .4rem;line-height:1}
+.sub{color:var(--meta);margin:0 0 1.6rem}
+h2{font-family:var(--display);font-weight:800;font-size:1.25rem;letter-spacing:-.01em;margin:2.4rem 0 .7rem;
+  border-top:2px solid var(--ink);padding-top:.6rem}
+.controls{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center;font-family:var(--mono);font-size:.8rem}
+.controls input,.controls select{font-family:var(--mono);font-size:.82rem;border:1px solid var(--rule);
+  background:var(--paper-deep);color:var(--ink);padding:.45rem .55rem;border-radius:0;min-width:0}
+.controls input{flex:1 1 16rem}
+.controls button{font-family:var(--mono);font-size:.8rem;text-transform:uppercase;letter-spacing:.06em;
+  background:var(--ink);color:var(--paper);border:0;padding:.55rem .9rem;cursor:pointer}
+.controls button:hover{background:var(--accent)}
+.msg{font-family:var(--mono);font-size:.82rem;color:var(--meta);margin:.8rem 0 0;min-height:1.2rem}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(9rem,1fr));gap:0;border:2px solid var(--ink);margin-top:1.6rem}
+.stat{padding:.9rem 1rem;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);background:var(--paper-deep)}
+.stat b{display:block;font-family:var(--display);font-weight:800;font-size:1.8rem;line-height:1.1;font-variant-numeric:tabular-nums}
+.stat span{font-family:var(--mono);font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--meta)}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:.95rem}
+th{font-family:var(--mono);font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--meta);
+  text-align:left;font-weight:500;padding:.4rem .6rem .4rem 0;border-bottom:1px solid var(--ink)}
+td{padding:.45rem .6rem .45rem 0;border-bottom:1px solid var(--rule);vertical-align:top}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+td.m{font-family:var(--mono);font-size:.78rem;color:var(--meta);white-space:nowrap}
+.kind{font-family:var(--mono);font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;border:1px solid var(--rule);padding:.05rem .35rem}
+.empty{color:var(--meta);font-style:italic}
+.bar{height:.5rem;background:var(--accent);min-width:2px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead"><a href="/">Nigerian News Router</a><span>Usage</span></header>
+
+  <h1>Who is using the router</h1>
+  <p class="sub">Every search, download and API call, as recorded. Visitors are counted by a scrambled address, never stored as one.</p>
+
+  <form class="controls" id="auth">
+    <input id="token" type="password" placeholder="Admin token" autocomplete="current-password" aria-label="Admin token"/>
+    <select id="days" aria-label="Period">
+      <option value="1">Last 24 hours</option>
+      <option value="7" selected>Last 7 days</option>
+      <option value="30">Last 30 days</option>
+      <option value="90">Last 90 days</option>
+    </select>
+    <button type="submit">Show</button>
+  </form>
+  <p class="msg" id="msg"></p>
+
+  <div id="report" hidden>
+    <div class="stats" id="stats"></div>
+
+    <h2>By day</h2>
+    <div class="scroll"><table id="byDay"></table></div>
+
+    <h2>What people search for</h2>
+    <div class="scroll"><table id="searches"></table></div>
+
+    <h2>Downloads</h2>
+    <div class="scroll"><table id="downloads"></table></div>
+
+    <h2>Where visitors are</h2>
+    <div class="scroll"><table id="countries"></table></div>
+
+    <h2>Latest requests</h2>
+    <div class="scroll"><table id="recent"></table></div>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const num = n => Number(n || 0).toLocaleString();
+
+function ago(iso){
+  if (!iso) return "";
+  const mins = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return mins + " min ago";
+  if (mins < 60*24) return Math.round(mins/60) + " hr ago";
+  return new Date(iso).toLocaleDateString("en-GB", {day:"numeric", month:"short", timeZone:"Africa/Lagos"});
+}
+function day(iso){
+  // Dates as they fall in Lagos, whatever the viewer's clock says.
+  return iso ? new Date(iso).toLocaleDateString("en-GB", {day:"numeric", month:"short", year:"numeric", timeZone:"Africa/Lagos"}) : "";
+}
+function table(el, head, rows, empty){
+  $(el).innerHTML = rows.length
+    ? `<thead><tr>${head.map(h => `<th class="${h[1]||""}">${h[0]}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody>`
+    : `<tbody><tr><td class="empty">${empty}</td></tr></tbody>`;
+}
+
+function describe(e){
+  let p = {};
+  try { p = JSON.parse(e.params || "{}"); } catch {}
+  const bits = [];
+  if (p.q) bits.push(`“${esc(p.q)}”`);
+  if (p.since || p.until) bits.push(esc([p.since && "from " + day(p.since), p.until && "to " + day(p.until)].filter(Boolean).join(" ")));
+  if (p.source) bits.push(esc(p.source));
+  if (p.cursor) bits.push("next page");
+  if (!bits.length && e.kind !== "visit") bits.push(`<span class="m">${esc(e.path)}</span>`);
+  return bits.join(" · ");
+}
+
+function render(d){
+  const t = d.totals;
+  $("#stats").innerHTML = [
+    ["visitors", t.visitors], ["page visits", t.visits], ["searches", t.searches],
+    ["downloads", t.downloads], ["reports downloaded", t.reports_downloaded],
+    ["summaries", t.summaries], ["API calls", t.api_calls],
+  ].map(([k, v]) => `<div class="stat"><b>${num(v)}</b><span>${k}</span></div>`).join("");
+
+  const peak = Math.max(1, ...d.by_day.map(r => r.visitors));
+  table("#byDay", [["Day"], ["Visitors", "n"], ["", ""], ["Visits", "n"], ["Searches", "n"], ["Downloads", "n"]],
+    d.by_day.map(r => `<tr><td class="m">${day(r.day + "T12:00:00Z")}</td><td class="n">${num(r.visitors)}</td>
+      <td style="width:30%"><div class="bar" style="width:${(r.visitors/peak*100).toFixed(1)}%"></div></td>
+      <td class="n">${num(r.visits)}</td><td class="n">${num(r.searches)}</td><td class="n">${num(r.downloads)}</td></tr>`),
+    "Nothing recorded in this period.");
+
+  table("#searches", [["Search"], ["Times", "n"], ["People", "n"], ["Last", "n"]],
+    d.top_searches.map(r => `<tr><td>${esc(r.q)}</td><td class="n">${num(r.times)}</td>
+      <td class="n">${num(r.visitors)}</td><td class="m n">${ago(r.last)}</td></tr>`),
+    "No searches yet.");
+
+  table("#downloads", [["Topic"], ["Dates"], ["Times", "n"], ["People", "n"], ["Reports", "n"], ["Last", "n"]],
+    d.downloads.map(r => `<tr><td>${esc(r.q)}</td>
+      <td class="m">${esc([r.since && day(r.since), r.until && day(r.until)].filter(Boolean).join(" – ") || "any time")}</td>
+      <td class="n">${num(r.times)}</td><td class="n">${num(r.visitors)}</td><td class="n">${num(r.reports)}</td>
+      <td class="m n">${ago(r.last)}</td></tr>`),
+    "No downloads yet.");
+
+  table("#countries", [["Country"], ["Visitors", "n"], ["Requests", "n"]],
+    d.countries.map(r => `<tr><td>${esc(r.country)}</td><td class="n">${num(r.visitors)}</td><td class="n">${num(r.requests)}</td></tr>`),
+    "Nothing recorded in this period.");
+
+  table("#recent", [["When"], ["What"], ["Detail"], ["Visitor"], ["Where"], ["Results", "n"], ["Status", "n"]],
+    d.recent.map(e => `<tr><td class="m">${ago(e.at)}</td><td><span class="kind">${esc(e.kind)}</span></td>
+      <td>${describe(e)}</td><td class="m">${esc(e.visitor)}</td><td class="m">${esc(e.country || "")}</td>
+      <td class="n">${e.results == null ? "" : num(e.results)}</td><td class="m n">${esc(e.status)}</td></tr>`),
+    "Nothing recorded in this period.");
+
+  $("#report").hidden = false;
+}
+
+async function load(){
+  const token = $("#token").value.trim();
+  if (!token) { $("#msg").textContent = "Enter the admin token."; return; }
+  $("#msg").textContent = "Loading…";
+  try{
+    const r = await fetch("/v1/admin/usage?days=" + $("#days").value, {headers: {Authorization: "Bearer " + token}});
+    if (r.status === 401) { $("#msg").textContent = "That token was not accepted."; return; }
+    if (!r.ok) { $("#msg").textContent = `The router answered ${r.status}.`; return; }
+    render(await r.json());
+    try { localStorage.setItem("routerAdminToken", token); } catch {}
+    $("#msg").textContent = "Updated " + new Date().toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"});
+  }catch(err){
+    $("#msg").textContent = "The router could not be reached.";
+  }
+}
+
+$("#auth").addEventListener("submit", e => { e.preventDefault(); load(); });
+$("#days").addEventListener("change", () => { if ($("#token").value) load(); });
+try {
+  const saved = localStorage.getItem("routerAdminToken");
+  if (saved) { $("#token").value = saved; load(); }
+} catch {}
+</script>
+</body>
+</html>

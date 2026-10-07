@@ -70,6 +70,7 @@ async def search(
     sql += " ORDER BY score DESC, a.published_at DESC LIMIT %(limit)s"
 
     rows = conn.execute(sql, params).fetchall()
+    request.state.usage = {"results": len(rows)}
     srcs = sources_map(request)
     return {
         "query": q,

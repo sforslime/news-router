@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
-from . import db
+from . import db, usage
 from .config import APP_DIR
 from .routes import admin, articles, clusters, export, meta, search, sources
 
@@ -54,11 +56,30 @@ def create_app() -> FastAPI:
     for module in (meta, sources, articles, search, clusters, export, admin):
         app.include_router(module.router)
 
+    @app.middleware("http")
+    async def record_usage(request: Request, call_next):
+        # Every search, download and call is recorded for the usage dashboard,
+        # after the response is on its way. Nothing here can fail a request.
+        started = time.monotonic()
+        response = await call_next(request)
+        try:
+            row = usage.event(request, response.status_code, round((time.monotonic() - started) * 1000))
+        except Exception:
+            row = None
+        if row and response.background is None:
+            response.background = BackgroundTask(usage.write, row)
+        return response
+
     # GET and HEAD: link-preview crawlers (LinkedIn among them) check with HEAD
     # first and give up on a 405.
     @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
     async def home():
         return FileResponse(STATIC_DIR / "index.html")
+
+    @app.api_route("/admin", methods=["GET", "HEAD"], include_in_schema=False)
+    async def admin_page():
+        # The usage dashboard. The page is public; its data needs ADMIN_TOKEN.
+        return FileResponse(STATIC_DIR / "admin.html")
 
     @app.api_route("/og.png", methods=["GET", "HEAD"], include_in_schema=False)
     async def share_image():

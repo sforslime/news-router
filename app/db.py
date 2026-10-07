@@ -51,8 +51,8 @@ def connect(url: str | None = None, *, readonly: bool = False) -> psycopg.Connec
 
 
 class ServingConnection:
-    """The read-only connection the API holds for its whole life, reopened when
-    it dies.
+    """A connection the API holds for its whole life, reopened when it dies:
+    the read-only one by default, or the usage recorder's when given its URL.
 
     A warm instance can sit idle long enough for Neon to drop the connection
     under it, and psycopg does not reconnect on its own — every request after
@@ -60,15 +60,16 @@ class ServingConnection:
     that fails on a dead connection is safe to retry once on a fresh one.
     """
 
-    def __init__(self) -> None:
-        self._conn = connect(readonly=True)
+    def __init__(self, url: str | None = None) -> None:
+        self._url = url
+        self._conn = connect(url, readonly=True)
 
     def execute(self, *args: Any, **kwargs: Any) -> psycopg.Cursor:
         try:
             return self._conn.execute(*args, **kwargs)
         except psycopg.OperationalError:
             self._conn.close()
-            self._conn = connect(readonly=True)
+            self._conn = connect(self._url, readonly=True)
             return self._conn.execute(*args, **kwargs)
 
     def close(self) -> None:

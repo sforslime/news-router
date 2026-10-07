@@ -34,6 +34,7 @@ async def list_articles(
         wire_source=wire_source, since=since, until=until, retracted=retracted,
         include_sponsored=include_sponsored, limit=limit, cursor=cursor,
     )
+    request.state.usage = {"results": total if total is not None else len(rows)}
     srcs = sources_map(request)
 
     out = {

@@ -135,6 +135,26 @@ CREATE TABLE IF NOT EXISTS cluster_gists (
   generated_at  TEXT NOT NULL
 );
 
+-- Every search, download and API call, for the usage dashboard. Written by a
+-- role that can only INSERT here. No addresses: visitor is a salted hash of
+-- the caller's IP, enough to count repeat visitors and nothing more.
+CREATE TABLE IF NOT EXISTS usage_events (
+  id           BIGSERIAL PRIMARY KEY,
+  at           TEXT NOT NULL,
+  kind         TEXT NOT NULL,          -- visit | search | feed | export | gist | api
+  path         TEXT NOT NULL,
+  params       TEXT NOT NULL DEFAULT '{}',   -- JSON: the query string
+  visitor      TEXT,
+  country      TEXT,
+  referrer     TEXT,
+  agent        TEXT,
+  status       INTEGER,
+  results      INTEGER,
+  article_ids  TEXT,                   -- JSON array, for exports
+  ms           INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_usage_at ON usage_events(at DESC);
+
 -- Small pipeline facts the serving path needs to explain itself — e.g. why a
 -- cluster has no gist (the writer may live on a laptop that was offline).
 CREATE TABLE IF NOT EXISTS pipeline_state (
