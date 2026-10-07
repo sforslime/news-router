@@ -33,9 +33,10 @@ async def index(auth: dict = Depends(authenticate)):
             "GET /v1/articles/{id}": "One article",
             "GET /v1/articles/{id}/revisions": "Every observed edit, including corrections",
             "GET /v1/search": "Full-text search over headline, dek, snippet, entities; since/until for dates",
+            "GET /v1/export": "Every report on a topic as Markdown, full text fetched live (paged)",
             "GET /v1/search/gist": "Streamed gist of recent coverage on a topic (NDJSON)",
             "GET /v1/clusters": "Same story across outlets",
         },
         "rate_limit": {"plan": auth["plan"], "per_minute": auth["limit"], "remaining": auth["remaining"]},
-        "notes": "Metadata only. Article text is never served; opening paragraphs are kept three days to write summaries.",
+        "notes": "Full text is served only by /v1/export, fetched live from the newsroom and never stored. Single reports are read at the newsroom via canonical_url.",
     }

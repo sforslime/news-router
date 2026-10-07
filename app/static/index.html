@@ -77,6 +77,13 @@ h1{font-family:var(--display);font-weight:800;font-size:clamp(2.6rem,7vw,4.6rem)
   border:2px solid var(--ink);padding:.7rem 1.2rem;cursor:pointer}
 .more:hover{background:var(--ink);color:var(--paper)}
 .more:disabled{opacity:.5;cursor:default}
+.export{display:flex;align-items:center;flex-wrap:wrap;gap:.5rem 1rem;margin:-.4rem 0 1.4rem}
+.export[hidden]{display:none}
+.export button{font-family:var(--mono);font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;
+  background:var(--ink);color:var(--paper);border:0;padding:.55rem .9rem;cursor:pointer}
+.export button:hover{background:var(--accent)}
+.export button:disabled{opacity:.6;cursor:default}
+.export__note{font-family:var(--mono);font-size:.74rem;color:var(--meta)}
 
 .chips{display:flex;align-items:baseline;flex-wrap:wrap;gap:.4rem .5rem;margin:.9rem 0 2.4rem}
 .chips__label{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;color:var(--meta)}
@@ -258,6 +265,10 @@ details.dev[open] summary::before{content:"–"}
     <article class="gist" id="gist" hidden></article>
 
     <p class="tally" id="tally" role="status" aria-live="polite"></p>
+    <div class="export" id="export" hidden>
+      <button type="button" id="dlBtn">Download all as .md</button>
+      <span class="export__note" id="dlNote">Full text of every report, fetched from the newsrooms</span>
+    </div>
     <div id="shared"></div>
     <div class="results" id="results"></div>
     <button class="more" id="more" type="button" hidden>Show more</button>
@@ -299,10 +310,11 @@ details.dev[open] summary::before{content:"–"}
          with the fields that changed named.</p>
     </div>
     <div class="card">
-      <h3>Only the front of the story leaves</h3>
-      <p>Headline, standfirst, byline, time, section, a short extract and the
-         thumbnail. The opening paragraphs are kept for three days to write
-         summaries, then deleted. They are never served.</p>
+      <h3>Every report on a topic, in one file</h3>
+      <p>Download every report on a search as one Markdown file, full text
+         included. The text is fetched from each newsroom at that moment and
+         never stored, and every report links to the original. A single report
+         is always read at the newsroom.</p>
     </div>
     <div class="card">
       <h3>There is nothing new to run</h3>
@@ -331,6 +343,18 @@ details.dev[open] summary::before{content:"–"}
         <tr><td>limit</td><td>1–100, default 25; best matches first. For every match, use /v1/articles with q</td></tr>
       </table>
       <div class="runner"><code>/v1/search?q=fake%20agency</code><button type="button" data-run="/v1/search?q=fake%20agency">Run it →</button></div>
+    </div>
+
+    <div class="ep">
+      <p class="ep__sig"><span class="ep__verb">GET</span> /v1/export</p>
+      <p class="ep__desc">Every report on a topic as Markdown, newest first, with the full text fetched live from each newsroom and never stored. 50 reports a page: follow the <em>X-Next-Cursor</em> header and join the pages. <em>X-Total</em> is the number of matches. Newsrooms read over RSS give the summary and the link. The Download button above, and <code>python -m app.export</code> in the repository, do the paging for you.</p>
+      <table class="ep__params">
+        <tr><td>q</td><td>required, the topic as you would search it</td></tr>
+        <tr><td>since / until</td><td>ISO timestamp, UTC</td></tr>
+        <tr><td>source</td><td>newsroom ids, comma separated</td></tr>
+        <tr><td>cursor</td><td>from the previous page's X-Next-Cursor</td></tr>
+      </table>
+      <div class="runner"><code>/v1/export?q=tinubu&amp;source=punch</code><button type="button" data-run="/v1/export?q=tinubu&source=punch">Run it →</button></div>
     </div>
 
     <div class="ep">
@@ -422,7 +446,7 @@ details.dev[open] summary::before{content:"–"}
 
   <footer class="foot">
     <span>Built by SAYOL labs · Prototype built for review — not an official service of any newsroom</span>
-    <span id="footMeta">Metadata only · article text is never served</span>
+    <span id="footMeta">Full text fetched live, never stored · every report credited and linked</span>
   </footer>
 </div>
 
@@ -514,6 +538,7 @@ async function search(q){
   $("#shared").innerHTML = "";
   $("#gist").hidden = true;
   $("#more").hidden = true;
+  $("#export").hidden = true;
   feedQuery = null;
 
   const range = dateRange();
@@ -554,6 +579,9 @@ async function search(q){
   }
 
   renderResults(d.articles);
+  exportQuery = d.count ? {q, range} : null;
+  $("#export").hidden = !d.count;
+  $("#dlNote").textContent = "Full text of every report, fetched from the newsrooms";
 
   if (d.count >= 3) gistStream(q, d.count);
 }
@@ -760,8 +788,58 @@ function restoreTodayGist(){
   $("#results").innerHTML = todayGist.results;
   $("#shared").innerHTML = "";
   $("#more").hidden = true;
+  $("#export").hidden = true;
   feedQuery = null;
+  exportQuery = null;
 }
+
+// The .md download walks /v1/export page by page and joins the pages; the
+// server decides the layout, so the file matches `python -m app.export`.
+let exportQuery = null;
+
+function localDay(iso){
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
+$("#dlBtn").addEventListener("click", async () => {
+  const x = exportQuery;
+  if (!x) return;
+  const btn = $("#dlBtn"), note = $("#dlNote");
+  btn.disabled = true;
+  const pages = [];
+  let cursor = null, done = 0, full = 0, total = 0;
+  try{
+    do{
+      const p = new URLSearchParams({q: x.q});
+      if (x.range?.since) p.set("since", x.range.since);
+      if (x.range?.until) p.set("until", x.range.until);
+      if (cursor) p.set("cursor", cursor);
+      const r = await fetch("/v1/export?" + p);
+      if(!r.ok) throw new Error("HTTP " + r.status);
+      pages.push(await r.text());
+      total = +r.headers.get("X-Total");
+      done += +r.headers.get("X-Count");
+      full += +r.headers.get("X-Full-Text");
+      cursor = r.headers.get("X-Next-Cursor");
+      note.textContent = `Fetched ${done} of ${total.toLocaleString()}…`;
+      if (exportQuery !== x) return;  // searched again meanwhile
+    } while (cursor);
+  }catch(err){
+    note.textContent = `Stopped after ${done} reports: a newsroom or the router didn't answer. Try again.`;
+    btn.disabled = false;
+    return;
+  }
+  const slug = x.q.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "export";
+  const span = [x.range?.since, x.range?.until].filter(Boolean).map(localDay).join("_to_");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(pages, {type: "text/markdown"}));
+  a.download = `${slug}${span ? "_" + span : ""}.md`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  note.textContent = `Saved ${done} reports, ${full} with full text.`;
+  btn.disabled = false;
+});
 
 $("#more").addEventListener("click", async () => {
   const f = feedQuery;
@@ -819,9 +897,11 @@ async function runIt(btn, path){
   try{
     const r = await fetch(path);
     const ms = Math.round(performance.now() - t0);
-    const body = await r.json();
-    pre.textContent = JSON.stringify(body, null, 2).slice(0, 6000);
-    meta.textContent = `${r.status} · ${ms} ms · ${(JSON.stringify(body).length/1024).toFixed(1)} kB`;
+    // The export answers in Markdown; everything else in JSON.
+    const text = (r.headers.get("content-type") || "").includes("json")
+      ? JSON.stringify(await r.json(), null, 2) : await r.text();
+    pre.textContent = text.slice(0, 6000);
+    meta.textContent = `${r.status} · ${ms} ms · ${(text.length/1024).toFixed(1)} kB`;
   }catch(err){
     pre.textContent = "The request did not complete.";
     meta.textContent = String(err);

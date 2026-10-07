@@ -88,13 +88,13 @@ def sync_sources(conn: psycopg.Connection, sources_file: str | None = None) -> i
         conn.execute(
             """
             INSERT INTO sources (id, name, homepage, adapter, endpoint, enabled, embed,
-                                 attribution_name, timezone, added_at)
+                                 full_text, attribution_name, timezone, added_at)
             VALUES (%(id)s,%(name)s,%(homepage)s,%(adapter)s,%(endpoint)s,%(enabled)s,%(embed)s,
-                    %(attribution_name)s,%(timezone)s,%(added_at)s)
+                    %(full_text)s,%(attribution_name)s,%(timezone)s,%(added_at)s)
             ON CONFLICT(id) DO UPDATE SET
               name=excluded.name, homepage=excluded.homepage,
               adapter=excluded.adapter, endpoint=excluded.endpoint, enabled=excluded.enabled,
-              embed=excluded.embed,
+              embed=excluded.embed, full_text=excluded.full_text,
               attribution_name=excluded.attribution_name, timezone=excluded.timezone
             """,
             {
@@ -105,6 +105,7 @@ def sync_sources(conn: psycopg.Connection, sources_file: str | None = None) -> i
                 "endpoint": s["endpoint"],
                 "enabled": int(bool(s.get("enabled", False))),
                 "embed": int(bool(s.get("embed", True))),
+                "full_text": int(bool(s.get("full_text", True))),
                 "attribution_name": s.get("attribution_name") or s["name"],
                 "timezone": s.get("timezone", "Africa/Lagos"),
                 "added_at": now_iso(),

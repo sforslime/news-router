@@ -7,6 +7,10 @@
 #
 # `enabled: false` means the router knows about the outlet but cannot read it.
 #
+# `full_text: false` stops the .md export fetching an outlet's full text; its
+# reports then carry headline, summary and link only. On by default, and only
+# WordPress outlets can be fetched this way.
+#
 # WordPress probes 2026-08-21 and 2026-10-05; feed probes 2026-08-27 and 2026-10-05.
 
 sources:

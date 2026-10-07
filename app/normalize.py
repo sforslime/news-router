@@ -1,8 +1,9 @@
 """Map publisher payloads onto the router's unified schema.
 
-The router serves metadata only. Article bodies are read during ingestion — to
-compute a change-detection hash and to spot wire copy — and only the opening
-paragraphs are kept, privately and for three days, to write gists.
+Article bodies are read during ingestion — to compute a change-detection hash
+and to spot wire copy — and only the opening paragraphs are kept, privately and
+for three days, to write gists. Full text is never stored: the export fetches
+it live from the newsroom and tidies it with body_text().
 """
 from __future__ import annotations
 
@@ -64,6 +65,49 @@ def strip_html(value: str | None) -> str:
     # go here, at the shared choke point, not per adapter.
     text = _FORMAT_CHAR_RE.sub("", text)
     return _WS_RE.sub(" ", text).strip()
+
+
+# Full text for the export. Only block elements that carry the report are kept:
+# paragraphs, subheadings, list items. Ad slots, share buttons and "follow us"
+# widgets live in bare divs and spans, so keeping blocks rather than stripping
+# junk leaves them behind without a per-outlet denylist.
+_BLOCK_RE = re.compile(r"<(p|h[1-6]|li)\b[^>]*>(.*?)</\1\s*>", re.I | re.S)
+_DROP_RE = re.compile(r"<(figure|figcaption|iframe|ins|table)\b[^>]*>.*?</\1\s*>", re.I | re.S)
+_UNWRAP_RE = re.compile(r"</?blockquote\b[^>]*>", re.I)
+# Inline tags go without a space, so "<strong>two</strong>." stays "two.".
+_INLINE_RE = re.compile(r"</?(a|em|strong|b|i|u|span|sup|sub|mark|abbr)\b[^>]*>", re.I)
+
+# Lines that are navigation rather than reporting.
+_BOILERPLATE_RE = re.compile(
+    r"^(read also|also read|read more|related( news| stories)?|advertisement|sponsored)\b"
+    r"|^(join|follow) (us|our)\b|\bwhatsapp channel\b|^click here\b|^subscribe\b",
+    re.I,
+)
+
+
+def body_text(html_body: str | None) -> str:
+    """Article HTML -> readable paragraphs, separated by blank lines.
+    Subheadings become '### ' lines and list items '- ' lines."""
+    if not html_body:
+        return ""
+    cleaned = _UNWRAP_RE.sub("", _DROP_RE.sub(" ", _SCRIPT_RE.sub(" ", html_body)))
+    blocks: list[str] = []
+    for tag, inner in _BLOCK_RE.findall(cleaned):
+        text = strip_html(_INLINE_RE.sub("", inner))
+        if not text or _BOILERPLATE_RE.search(text):
+            continue
+        tag = tag.lower()
+        if tag.startswith("h"):
+            text = "### " + text
+        elif tag == "li":
+            text = "- " + text
+        if blocks and blocks[-1] == text:
+            continue
+        blocks.append(text)
+    if not blocks:
+        # Some installs serve bare text with <br> line breaks and no blocks.
+        return strip_html(cleaned)
+    return "\n\n".join(blocks)
 
 
 def collapse_duplicate(text: str) -> str:

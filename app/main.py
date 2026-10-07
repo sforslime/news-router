@@ -8,16 +8,17 @@ from fastapi.responses import FileResponse
 
 from . import db
 from .config import APP_DIR
-from .routes import admin, articles, clusters, meta, search, sources
+from .routes import admin, articles, clusters, export, meta, search, sources
 
 STATIC_DIR = APP_DIR / "static"
 
 DESCRIPTION = """
 One API across Nigerian newsrooms.
 
-Returns **metadata only** — headline, dek, byline, timestamp, canonical URL,
-snippet and thumbnail — never article text. Everything is read from the
-feeds and site endpoints the newsrooms publish openly, and every record links
+Returns headline, dek, byline, timestamp, canonical URL, snippet and thumbnail
+for every report, read from the feeds and site endpoints the newsrooms publish
+openly. `/v1/export` adds the full text of every report on a topic as
+Markdown, fetched live from the newsroom and never stored. Every record links
 back to the newsroom that filed it.
 """
 
@@ -47,8 +48,10 @@ def create_app() -> FastAPI:
         allow_origins=["*"],
         allow_methods=["GET"],
         allow_headers=["*"],
+        # The export pages through these; a script on another origin needs them.
+        expose_headers=["X-Next-Cursor", "X-Total", "X-Count", "X-Full-Text"],
     )
-    for module in (meta, sources, articles, search, clusters, admin):
+    for module in (meta, sources, articles, search, clusters, export, admin):
         app.include_router(module.router)
 
     # GET and HEAD: link-preview crawlers (LinkedIn among them) check with HEAD

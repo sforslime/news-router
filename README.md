@@ -11,11 +11,24 @@ which a story arrived through. Twenty-three outlets are indexed today, and the s
 gets a short gist — what happened, then a line on what each outlet's coverage
 adds — written only from what the outlets published.
 
-**Metadata only.** Headline, dek, byline, timestamps, canonical URL, section,
-snippet and thumbnail. Article bodies are read during ingestion — to hash for
-change detection and to spot wire copy. The opening paragraphs (up to 900
-characters) are kept for three days to write summaries, then deleted; they are
-never served and never searched.
+**What it serves.** Headline, dek, byline, timestamps, canonical URL, section,
+snippet and thumbnail for every report. A single report is read at the
+newsroom: every record links to it.
+
+**Full text, fetched live, never stored.** `GET /v1/export` returns every
+report on a topic as Markdown, full text included. The text is fetched from
+the newsroom's own WordPress endpoint at the moment of the request, kept in
+memory for half an hour, and never written to the database, so corrections
+and deletions show up at once. Newsrooms read over RSS (Vanguard, Channels,
+Legit.ng, Sahara Reporters) cannot be asked for a past report, so theirs carry
+the summary and the link. `full_text: false` in `sources.yaml` switches an
+outlet off. The opening paragraphs (up to 900 characters) are kept for three
+days to write summaries, then deleted.
+
+```bash
+# every report on a topic, full text included, into one .md file
+./.venv/bin/python -m app.export tinubu --since 2026-10-01
+```
 
 ## Run it
 
@@ -96,6 +109,7 @@ OpenAPI docs remain at `/docs`.
 | `GET /v1/articles/{id}` | One article |
 | `GET /v1/articles/{id}/revisions` | Every observed edit, including corrections |
 | `GET /v1/search` | Full-text over headline, dek, snippet and entities, best match first; `since`/`until` narrow it by date |
+| `GET /v1/export` | Every report on a topic as Markdown with full text fetched live; 50 a page, follow `X-Next-Cursor` |
 | `GET /v1/search/gist` | Streamed gist of recent coverage on a topic (NDJSON) |
 | `GET /v1/clusters` | Same story across outlets, each with its gist; filter by size and recency (`hours`), `sort=recent` or `size` |
 | `GET /v1/clusters/{id}` | One story: its gist and every outlet's version |

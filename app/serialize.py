@@ -1,8 +1,9 @@
 """Turn stored rows into API responses.
 
 Every newsroom is served the same way: whatever front-of-story fields it
-published. Article text is never served: the opening paragraphs kept for
-gist writing (lead_text) are deliberately not listed here.
+published. The opening paragraphs kept for gist writing (lead_text) are
+deliberately not listed here. Full text exists only in /v1/export, fetched
+live from the newsroom.
 """
 from __future__ import annotations
 

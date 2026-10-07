@@ -29,6 +29,41 @@ async def list_articles(
     auth: dict = Depends(authenticate),
 ):
     conn = request.app.state.conn
+    rows, next_cursor, total = feed(
+        conn, q=q, source=source, section=section, language=language,
+        wire_source=wire_source, since=since, until=until, retracted=retracted,
+        include_sponsored=include_sponsored, limit=limit, cursor=cursor,
+    )
+    srcs = sources_map(request)
+
+    out = {
+        "count": len(rows),
+        "has_more": next_cursor is not None,
+        "next_cursor": next_cursor,
+        "articles": [article_out(r, srcs[r["source_id"]]) for r in rows],
+    }
+    if total is not None:
+        out["total"] = total
+    return out
+
+
+def feed(
+    conn,
+    *,
+    q: str | None = None,
+    source: str | None = None,
+    section: str | None = None,
+    language: str | None = None,
+    wire_source: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    retracted: bool | None = None,
+    include_sponsored: bool = False,
+    limit: int = 25,
+    cursor: str | None = None,
+) -> tuple[list, str | None, int | None]:
+    """One page of the feed, newest first: (rows, next_cursor, total). The
+    total is counted only with a search term. Shared by the feed and the export."""
     where: list[str] = []
     params: dict[str, Any] = {}
 
@@ -67,9 +102,9 @@ async def list_articles(
     # text index makes counting cheap. Counted before the cursor narrows it.
     total = None
     if q:
-        total = conn.execute(
+        total = int(conn.execute(
             f"SELECT COUNT(*) AS n FROM articles a WHERE {' AND '.join(where)}", params
-        ).fetchone()["n"]
+        ).fetchone()["n"])
     if cursor:
         c_pub, c_id = decode_cursor(cursor)
         where.append("(a.published_at, a.id) < (%(c_pub)s, %(c_id)s)")
@@ -85,17 +120,8 @@ async def list_articles(
 
     has_more = len(rows) > limit
     rows = rows[:limit]
-    srcs = sources_map(request)
-
-    out = {
-        "count": len(rows),
-        "has_more": has_more,
-        "next_cursor": encode_cursor(rows[-1]["published_at"], rows[-1]["id"]) if has_more and rows else None,
-        "articles": [article_out(r, srcs[r["source_id"]]) for r in rows],
-    }
-    if total is not None:
-        out["total"] = int(total)
-    return out
+    next_cursor = encode_cursor(rows[-1]["published_at"], rows[-1]["id"]) if has_more and rows else None
+    return rows, next_cursor, total
 
 
 @router.get("/v1/articles/{article_id}/revisions", summary="Edit history for one article")
