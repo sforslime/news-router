@@ -64,6 +64,20 @@ h1{font-family:var(--display);font-weight:800;font-size:clamp(2.6rem,7vw,4.6rem)
   text-transform:uppercase;padding:0 1.4rem;cursor:pointer}
 .searchbar button:hover{background:var(--accent)}
 
+.range{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem .6rem;margin:.7rem 0 0;
+  font-family:var(--mono);font-size:.76rem;color:var(--meta)}
+.range__label{text-transform:uppercase;letter-spacing:.09em;font-size:.72rem}
+.range select,.range input{font-family:var(--mono);font-size:.78rem;color:var(--ink);
+  background:var(--paper-deep);border:1px solid var(--rule);padding:.3rem .45rem;border-radius:0}
+.range select:focus,.range input:focus{outline:2px solid var(--ink);outline-offset:0}
+.range__dates{display:inline-flex;align-items:center;gap:.4rem;flex-wrap:wrap}
+.range__dates[hidden]{display:none}
+.more{display:block;margin:1.2rem 0 0;font-family:var(--display);font-weight:600;font-size:.84rem;
+  letter-spacing:.04em;text-transform:uppercase;background:transparent;color:var(--ink);
+  border:2px solid var(--ink);padding:.7rem 1.2rem;cursor:pointer}
+.more:hover{background:var(--ink);color:var(--paper)}
+.more:disabled{opacity:.5;cursor:default}
+
 .chips{display:flex;align-items:baseline;flex-wrap:wrap;gap:.4rem .5rem;margin:.9rem 0 2.4rem}
 .chips__label{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.09em;color:var(--meta)}
 .chip{font-family:var(--mono);font-size:.78rem;border:1px solid var(--rule);background:transparent;
@@ -217,6 +231,20 @@ details.dev[open] summary::before{content:"–"}
       <input id="q" type="search" placeholder="Search every indexed newsroom…" autocomplete="off" aria-label="Search"/>
       <button type="submit">Search</button>
     </form>
+    <div class="range">
+      <label class="range__label" for="when">Published</label>
+      <select id="when">
+        <option value="any">Any time</option>
+        <option value="today">Today</option>
+        <option value="week">Past 7 days</option>
+        <option value="month">This month</option>
+        <option value="custom">Choose dates…</option>
+      </select>
+      <span class="range__dates" id="rangeDates" hidden>
+        <input type="date" id="from" aria-label="From"/> to
+        <input type="date" id="to" aria-label="To"/>
+      </span>
+    </div>
 
     <div class="chips">
       <span class="chips__label">Try</span>
@@ -232,6 +260,7 @@ details.dev[open] summary::before{content:"–"}
     <p class="tally" id="tally" role="status" aria-live="polite"></p>
     <div id="shared"></div>
     <div class="results" id="results"></div>
+    <button class="more" id="more" type="button" hidden>Show more</button>
   </section>
 
   <h2 class="section">Who is in the index</h2>
@@ -297,8 +326,9 @@ details.dev[open] summary::before{content:"–"}
       <table class="ep__params">
         <tr><td>q</td><td>required, your search terms</td></tr>
         <tr><td>source</td><td>narrow to one or more newsrooms, comma separated</td></tr>
+        <tr><td>since / until</td><td>ISO timestamp, UTC, on the publication time</td></tr>
         <tr><td>include_sponsored</td><td>default false</td></tr>
-        <tr><td>limit</td><td>1–100, default 25</td></tr>
+        <tr><td>limit</td><td>1–100, default 25; best matches first. For every match, use /v1/articles with q</td></tr>
       </table>
       <div class="runner"><code>/v1/search?q=fake%20agency</code><button type="button" data-run="/v1/search?q=fake%20agency">Run it →</button></div>
     </div>
@@ -314,8 +344,9 @@ details.dev[open] summary::before{content:"–"}
 
     <div class="ep">
       <p class="ep__sig"><span class="ep__verb">GET</span> /v1/articles</p>
-      <p class="ep__desc">Every indexed report, newest first, across all newsrooms. Advertorial is excluded unless asked for.</p>
+      <p class="ep__desc">Every indexed report, newest first, across all newsrooms. Add <em>q</em> to page through every report on a topic, with the total counted. Advertorial is excluded unless asked for.</p>
       <table class="ep__params">
+        <tr><td>q</td><td>search terms, matched as /v1/search matches them; adds <em>total</em></td></tr>
         <tr><td>source</td><td>newsroom ids, comma separated</td></tr>
         <tr><td>section</td><td>desk or beat</td></tr>
         <tr><td>language</td><td>en, ha, yo, pcm</td></tr>
@@ -325,7 +356,7 @@ details.dev[open] summary::before{content:"–"}
         <tr><td>include_sponsored</td><td>default false</td></tr>
         <tr><td>limit / cursor</td><td>1–100, default 25; cursor from the previous page</td></tr>
       </table>
-      <div class="runner"><code>/v1/articles?limit=3</code><button type="button" data-run="/v1/articles?limit=3">Run it →</button></div>
+      <div class="runner"><code>/v1/articles?q=tinubu&amp;limit=3</code><button type="button" data-run="/v1/articles?q=tinubu&limit=3">Run it →</button></div>
     </div>
 
     <div class="ep">
@@ -447,15 +478,48 @@ async function boot(){
   }catch(e){ /* the page still works without the counts */ }
 }
 
+// The "Published" choice as since/until (UTC ISO), or null for any time.
+// Days start and end at the reader's local midnight.
+function dateRange(){
+  const v = $("#when").value, now = new Date();
+  const midnight = d => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  if (v === "today") return {since: midnight(now).toISOString(), label: "today"};
+  if (v === "week") return {since: new Date(now - 7*864e5).toISOString(), label: "in the past 7 days"};
+  if (v === "month") return {since: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(), label: "this month"};
+  if (v === "custom"){
+    const f = $("#from").value, t = $("#to").value;
+    if (!f && !t) return null;
+    const r = {label: f && t ? `from ${f} to ${t}` : f ? `since ${f}` : `up to ${t}`};
+    if (f) r.since = new Date(f + "T00:00:00").toISOString();
+    if (t) r.until = new Date(t + "T23:59:59").toISOString();
+    return r;
+  }
+  return null;
+}
+
+// Paging state for a dated search: the feed walks every match, newest first.
+let feedQuery = null;
+
+function feedUrl(q, range, cursor){
+  const p = new URLSearchParams({q, limit: "25"});
+  if (range.since) p.set("since", range.since);
+  if (range.until) p.set("until", range.until);
+  if (cursor) p.set("cursor", cursor);
+  return "/v1/articles?" + p;
+}
+
 async function search(q){
   if(!q) return;
   $("#tally").innerHTML = "searching…";
   $("#shared").innerHTML = "";
   $("#gist").hidden = true;
+  $("#more").hidden = true;
+  feedQuery = null;
 
+  const range = dateRange();
   let d;
   try{
-    const r = await fetch("/v1/search?limit=25&q=" + encodeURIComponent(q));
+    const r = await fetch(range ? feedUrl(q, range) : "/v1/search?limit=25&q=" + encodeURIComponent(q));
     if(!r.ok) throw new Error("HTTP " + r.status);
     d = await r.json();
   }catch(err){
@@ -466,8 +530,20 @@ async function search(q){
 
   const outlets = new Set(d.articles.map(a => a.source.name));
 
-  $("#tally").innerHTML = `<strong>${d.count}</strong> report${d.count===1?"":"s"} `
-    + `mention “${esc(q)}”, across <strong>${outlets.size}</strong> newsroom${outlets.size===1?"":"s"}`;
+  if (range){
+    // A dated search counts every match, not just the first page.
+    d.count = d.total;
+    $("#tally").innerHTML = `<strong>${d.total.toLocaleString()}</strong> report${d.total===1?"":"s"} `
+      + `mention “${esc(q)}” ${esc(range.label)}, newest first`;
+    if (d.next_cursor){
+      feedQuery = {q, range, cursor: d.next_cursor, shown: d.articles.length, total: d.total};
+      $("#more").hidden = false;
+      $("#more").textContent = `Show more (${d.articles.length} of ${d.total.toLocaleString()})`;
+    }
+  } else {
+    $("#tally").innerHTML = `<strong>${d.count}</strong> report${d.count===1?"":"s"} `
+      + `mention “${esc(q)}”, across <strong>${outlets.size}</strong> newsroom${outlets.size===1?"":"s"}`;
+  }
 
   if (outlets.size > 1){
     $("#shared").innerHTML = `<div class="shared">
@@ -683,7 +759,42 @@ function restoreTodayGist(){
   $("#tally").innerHTML = todayGist.tally;
   $("#results").innerHTML = todayGist.results;
   $("#shared").innerHTML = "";
+  $("#more").hidden = true;
+  feedQuery = null;
 }
+
+$("#more").addEventListener("click", async () => {
+  const f = feedQuery;
+  if (!f) return;
+  const btn = $("#more");
+  btn.disabled = true;
+  btn.textContent = "Loading…";
+  try{
+    const r = await fetch(feedUrl(f.q, f.range, f.cursor));
+    if(!r.ok) throw new Error("HTTP " + r.status);
+    const d = await r.json();
+    if (feedQuery !== f) return;  // searched again meanwhile
+    $("#results").insertAdjacentHTML("beforeend", d.articles.map(resultRow).join(""));
+    f.shown += d.articles.length;
+    f.cursor = d.next_cursor;
+    btn.hidden = !d.next_cursor;
+    btn.textContent = `Show more (${f.shown} of ${f.total.toLocaleString()})`;
+  }catch(err){
+    btn.textContent = "Couldn't load more. Try again";
+  }finally{
+    btn.disabled = false;
+  }
+});
+
+$("#when").addEventListener("change", () => {
+  $("#rangeDates").hidden = $("#when").value !== "custom";
+  const q = $("#q").value.trim();
+  if (q && $("#when").value !== "custom") search(q);
+});
+["#from", "#to"].forEach(id => $(id).addEventListener("change", () => {
+  const q = $("#q").value.trim();
+  if (q) search(q);
+}));
 
 $("#searchForm").addEventListener("submit", e => {
   e.preventDefault();

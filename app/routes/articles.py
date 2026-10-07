@@ -15,6 +15,7 @@ router = APIRouter()
 @router.get("/v1/articles", summary="Unified cross-newsroom feed")
 async def list_articles(
     request: Request,
+    q: str | None = Query(None, min_length=2, description="Free text, matched as /v1/search matches it; results stay in date order"),
     source: str | None = Query(None, description="Comma-separated source ids"),
     section: str | None = None,
     language: str | None = None,
@@ -31,6 +32,9 @@ async def list_articles(
     where: list[str] = []
     params: dict[str, Any] = {}
 
+    if q:
+        where.append("a.search @@ websearch_to_tsquery('english', %(q)s)")
+        params["q"] = q
     if source:
         ids = [s.strip() for s in source.split(",") if s.strip()]
         keys = [f"%(src{i})s" for i in range(len(ids))]
@@ -59,6 +63,13 @@ async def list_articles(
         params["retracted"] = int(retracted)
     if not include_sponsored:
         where.append("a.sponsored = 0")
+    # With a search term the total is worth knowing ("412 reports"), and the
+    # text index makes counting cheap. Counted before the cursor narrows it.
+    total = None
+    if q:
+        total = conn.execute(
+            f"SELECT COUNT(*) AS n FROM articles a WHERE {' AND '.join(where)}", params
+        ).fetchone()["n"]
     if cursor:
         c_pub, c_id = decode_cursor(cursor)
         where.append("(a.published_at, a.id) < (%(c_pub)s, %(c_id)s)")
@@ -76,12 +87,15 @@ async def list_articles(
     rows = rows[:limit]
     srcs = sources_map(request)
 
-    return {
+    out = {
         "count": len(rows),
         "has_more": has_more,
         "next_cursor": encode_cursor(rows[-1]["published_at"], rows[-1]["id"]) if has_more and rows else None,
         "articles": [article_out(r, srcs[r["source_id"]]) for r in rows],
     }
+    if total is not None:
+        out["total"] = int(total)
+    return out
 
 
 @router.get("/v1/articles/{article_id}/revisions", summary="Edit history for one article")

@@ -344,3 +344,64 @@ class TestLeadText:
         assert db.purge_leads(conn) == 1
         rows = {r["id"]: r["lead_text"] for r in conn.execute("SELECT id, lead_text FROM articles")}
         assert rows == {"premium-times:1": None, "premium-times:2": "new"}
+
+
+class TestDateSearch:
+    """Everything on a topic over a date range: the feed takes a search term and
+    pages through every match in date order; search takes a date window."""
+
+    def _client(self, conn):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from app.routes import articles as articles_route, search as search_route
+
+        app = FastAPI()
+        app.include_router(articles_route.router)
+        app.include_router(search_route.router)
+        app.state.conn = conn
+        return TestClient(app)
+
+    def _seed(self, conn):
+        days = ["2026-09-28", "2026-10-01", "2026-10-02", "2026-10-03", "2026-10-04"]
+        for i, day in enumerate(days, 1):
+            db.upsert_article(conn, make_record(
+                id=f"premium-times:{i}", source_article_id=str(i),
+                headline=f"Tinubu signs bill number {i}", published_at=f"{day}T09:00:00Z"))
+        db.upsert_article(conn, make_record(
+            id="premium-times:99", source_article_id="99",
+            headline="Flooding in Kogi", dek="Rivers rose.", snippet="Rivers rose overnight.",
+            entities="[]", published_at="2026-10-02T09:00:00Z"))
+
+    def test_feed_filters_by_term_and_date_and_counts(self, conn):
+        self._seed(conn)
+        d = self._client(conn).get("/v1/articles", params={"q": "tinubu", "since": "2026-10-01"}).json()
+        assert d["total"] == 4
+        assert [a["id"] for a in d["articles"]] == [
+            "premium-times:5", "premium-times:4", "premium-times:3", "premium-times:2"]
+
+    def test_feed_pages_past_the_first_page(self, conn):
+        self._seed(conn)
+        client = self._client(conn)
+        seen, cursor = [], None
+        while True:
+            params = {"q": "tinubu", "since": "2026-10-01", "limit": 3}
+            if cursor:
+                params["cursor"] = cursor
+            d = client.get("/v1/articles", params=params).json()
+            assert d["total"] == 4
+            seen += [a["id"] for a in d["articles"]]
+            cursor = d["next_cursor"]
+            if not cursor:
+                break
+        assert len(seen) == 4 and len(set(seen)) == 4
+
+    def test_feed_without_term_has_no_total(self, conn):
+        self._seed(conn)
+        assert "total" not in self._client(conn).get("/v1/articles").json()
+
+    def test_search_takes_a_date_window(self, conn):
+        self._seed(conn)
+        d = self._client(conn).get("/v1/search", params={
+            "q": "tinubu", "since": "2026-10-02", "until": "2026-10-03T23:59:59Z"}).json()
+        assert sorted(a["id"] for a in d["articles"]) == ["premium-times:3", "premium-times:4"]

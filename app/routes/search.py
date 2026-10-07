@@ -36,6 +36,8 @@ async def search(
     request: Request,
     q: str = Query(..., min_length=2, description="Free text; matches headline, dek, snippet, entities"),
     source: str | None = None,
+    since: str | None = Query(None, description="ISO timestamp, on published_at (UTC)"),
+    until: str | None = None,
     include_sponsored: bool = Query(False, description="Advertorial and syndicated PR are excluded by default"),
     limit: int = Query(25, ge=1, le=100),
     auth: dict = Depends(authenticate),
@@ -56,6 +58,12 @@ async def search(
         keys = [f"%(src{i})s" for i in range(len(ids))]
         sql += f" AND a.source_id IN ({', '.join(keys)})"
         params.update({f"src{i}": v for i, v in enumerate(ids)})
+    if since:
+        sql += " AND a.published_at >= %(since)s"
+        params["since"] = since
+    if until:
+        sql += " AND a.published_at <= %(until)s"
+        params["until"] = until
     if not include_sponsored:
         sql += " AND a.sponsored = 0"
     # Rank first, then recency, so a strong old match still beats a weak new one.

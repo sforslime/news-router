@@ -29,10 +29,10 @@ async def index(auth: dict = Depends(authenticate)):
         "version": "0.1.0",
         "endpoints": {
             "GET /v1/sources": "Newsrooms in the index, how each is read and when it was last read",
-            "GET /v1/articles": "Unified feed across sources; filter and paginate",
+            "GET /v1/articles": "Unified feed across sources; filter (q for a topic), paginate",
             "GET /v1/articles/{id}": "One article",
             "GET /v1/articles/{id}/revisions": "Every observed edit, including corrections",
-            "GET /v1/search": "Full-text search over headline, dek, snippet, entities",
+            "GET /v1/search": "Full-text search over headline, dek, snippet, entities; since/until for dates",
             "GET /v1/search/gist": "Streamed gist of recent coverage on a topic (NDJSON)",
             "GET /v1/clusters": "Same story across outlets",
         },

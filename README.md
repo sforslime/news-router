@@ -92,10 +92,10 @@ OpenAPI docs remain at `/docs`.
 | `GET /v1/health` | Liveness, corpus size, failing sources, the gist writer's last outcome |
 | `GET /v1/sources` | Newsrooms indexed, how each is read and when it was last read |
 | `GET /v1/sources/{id}` | One newsroom, with its article count and date range |
-| `GET /v1/articles` | Unified feed; filter by source, section, language, wire, date |
+| `GET /v1/articles` | Unified feed; filter by search term (`q`, with a `total`), source, section, language, wire, date |
 | `GET /v1/articles/{id}` | One article |
 | `GET /v1/articles/{id}/revisions` | Every observed edit, including corrections |
-| `GET /v1/search` | Full-text over headline, dek, snippet and entities |
+| `GET /v1/search` | Full-text over headline, dek, snippet and entities, best match first; `since`/`until` narrow it by date |
 | `GET /v1/search/gist` | Streamed gist of recent coverage on a topic (NDJSON) |
 | `GET /v1/clusters` | Same story across outlets, each with its gist; filter by size and recency (`hours`), `sort=recent` or `size` |
 | `GET /v1/clusters/{id}` | One story: its gist and every outlet's version |
