@@ -1,0 +1,34 @@
+# Major Nigerian Newsrooms
+
+- Punch
+- Vanguard
+- The Guardian (Nigeria)
+- ThisDay
+- Daily Trust
+- The Nation
+- The Sun (Daily Sun)
+- Nigerian Tribune
+- Leadership
+- BusinessDay
+- Daily Independent
+- New Telegraph
+- Blueprint
+- Premium Times
+- TheCable
+- Sahara Reporters
+- Peoples Gazette
+- The ICIR
+- Ripples Nigeria
+- Daily Post
+- Legit.ng
+- Pulse Nigeria
+- Nairametrics
+- Daily Nigerian
+- HumAngle
+- Foundation for Investigative Journalism (FIJ)
+- The Whistler
+- News Agency of Nigeria (NAN)
+- Channels Television
+- Arise News
+- TVC News
+- Nigerian Television Authority (NTA)
